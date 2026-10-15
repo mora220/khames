@@ -249,7 +249,7 @@ const FIREBASE_CONFIG = {
 const ROOM = 'mawhiba5-act5-6';
 const ADMIN = { u: 'ragab', p: '141192' };
 const IDK = 'mw5_identity_v1';
-const FB = 'https://cdn.jsdelivr.net/npm/firebase@10.12.2/';
+const FB_SOURCES = ['https://www.gstatic.com/firebasejs/10.12.2/','https://cdn.jsdelivr.net/npm/firebase@10.12.2/'];
 
 /* ---------------- helpers ---------------- */
 const $ = s => document.querySelector(s);
@@ -384,6 +384,7 @@ const TOTAL = STAGES.reduce((a,s)=>a+s.min,0);
 const startMin = i => STAGES.slice(0,i).reduce((a,s)=>a+s.min,0);
 
 /* ---------------- backends ---------------- */
+const NET={status:'local', msg:''};
 function Emitter(){ const cbs={}; return { on(e,f){ (cbs[e]=cbs[e]||[]).push(f); }, emit(e,d){ (cbs[e]||[]).forEach(f=>f(d)); } }; }
 
 function LocalBackend(){
@@ -410,10 +411,13 @@ function LocalBackend(){
 
 function FireBackend(cfg){
   const E=Emitter();
+  NET.status='connecting';
   firebase.initializeApp(cfg);
   const db=firebase.firestore();
+  try{ db.settings({experimentalAutoDetectLongPolling:true, merge:true}); }catch(e){}
   const room=db.collection('mawhiba_live').doc(ROOM);
   let sess=null, unsubs=[];
+  const wErr=e=>{ console.warn(e); NET.status='error'; NET.msg='تعذّر الحفظ في قاعدة البيانات ('+(e&&e.code||'error')+'). راجع قواعد Firestore.'; E.emit('error',e); };
   const base=()=>room.collection('sessions').doc(sess);
   function rebind(){
     unsubs.forEach(u=>u()); unsubs=[];
@@ -421,20 +425,26 @@ function FireBackend(cfg){
     unsubs.push(base().collection('students').onSnapshot(q=>E.emit('students', q.docs.map(d=>d.data())), e=>console.warn(e)));
     unsubs.push(base().collection('answers').onSnapshot(q=>E.emit('answers', q.docs.map(d=>d.data())), e=>console.warn(e)));
   }
-  room.onSnapshot(s=>{ const st=s.data()||{}; if(st.session!==sess){ sess=st.session||null; rebind(); } E.emit('state', st); },
-    e=>{ console.warn(e); E.emit('error', e); });
+  room.onSnapshot(s=>{ NET.status='ok'; NET.msg=''; const st=s.data()||{}; if(st.session!==sess){ sess=st.session||null; rebind(); } E.emit('state', st); },
+    e=>{ console.warn(e); NET.status='error';
+      NET.msg = (e && e.code==='permission-denied') ? 'قاعدة البيانات رفضت الاتصال: انشر قواعد Firestore (Rules) التي تسمح بالمجموعة mawhiba_live.'
+              : 'تعذّر الاتصال بقاعدة البيانات: تأكد أن Firestore مفعّل في مشروع Firebase. ('+(e&&e.code||'error')+')';
+      E.emit('error', e); });
   return {
     mode:'firebase', on:E.on,
-    setState(p, replace){ return replace ? room.set(p) : room.set(p,{merge:true}); },
-    join(s){ if(sess) return base().collection('students').doc(s.id).set(s,{merge:true}); },
-    answer(a){ if(sess) return base().collection('answers').doc(a.qid+'__'+a.sid).set(a); }
+    setState(p, replace){ return (replace ? room.set(p) : room.set(p,{merge:true})).catch(wErr); },
+    join(s){ if(sess) return base().collection('students').doc(s.id).set(s,{merge:true}).catch(wErr); },
+    answer(a){ if(sess) return base().collection('answers').doc(a.qid+'__'+a.sid).set(a).catch(wErr); }
   };
 }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 async function makeBackend(){
   if(FIREBASE_CONFIG){
-    try{ await loadScript(FB+'firebase-app-compat.js'); await loadScript(FB+'firebase-firestore-compat.js'); return FireBackend(FIREBASE_CONFIG); }
-    catch(e){ console.warn('Firebase failed, using local mode', e); }
+    for(const src of FB_SOURCES){
+      try{ await loadScript(src+'firebase-app-compat.js'); await loadScript(src+'firebase-firestore-compat.js'); if(window.firebase && firebase.firestore) return FireBackend(FIREBASE_CONFIG); }
+      catch(e){ console.warn('Firebase load failed from', src, e); }
+    }
+    NET.status='error'; NET.msg='تعذّر تحميل مكتبة Firebase. تحقق من اتصال الإنترنت ثم حدّث الصفحة.';
   }
   return LocalBackend();
 }
@@ -463,7 +473,7 @@ function scores(){
   B.on('state', st=>{ S.state=st||{}; onData('state'); });
   B.on('students', l=>{ S.students=l||[]; onData('students'); });
   B.on('answers', l=>{ S.answers=l||[]; onData('answers'); });
-  B.on('error', e=>toast('تعذّر الاتصال بقاعدة البيانات. تأكد من تفعيل Firestore وقواعد الأمان.'));
+  B.on('error', ()=>{ render(); showNet(); });
   render();
   setInterval(tick, 1000);
 })();
@@ -519,6 +529,7 @@ function renderLogin(){
     if($('#tUser').value.trim().toLowerCase()===ADMIN.u && $('#tPass').value.trim()===ADMIN.p){ me={role:'teacher', sid:'teacher', name:'أ. محمد رجب'}; store.set(IDK,me); onData('state'); }
     else $('#tErr').textContent='اسم المستخدم أو كلمة المرور غير صحيحة.'; };
 }
+function showNet(){ if(!me){ const e=$('#stuErr'); if(e && NET.status==='error') e.textContent=NET.msg; } }
 function logout(){ me=null; store.set(IDK,null); joinedSession=null; renderLogin(); }
 
 /* ---------------- shell ---------------- */
@@ -540,10 +551,12 @@ function buildShell(){
 }
 function updateTop(){
   $('#who').innerHTML = isT()
-    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><button class="btn ghost" id="out">خروج</button>`
+    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><span class="pill" title="حالة الاتصال">${B.mode==='firebase'?(NET.status==='ok'?'🟢 متصل مباشر':NET.status==='error'?'🔴 غير متصل':'🟡 جارٍ الاتصال'):'⚪ وضع تجريبي'}</span><button class="btn ghost" id="out">خروج</button>`
     : `<span class="pill s">${esc(me.name)}</span><button class="btn ghost" id="out">خروج</button>`;
   $('#out').onclick=logout;
-  $('#demo').innerHTML = (isT() && B.mode==='local') ? `<div class="demo">وضع تجريبي: المشاركة تعمل الآن بين تبويبات هذا المتصفح فقط. لربط أجهزة الطلاب أضف إعدادات Firebase في أعلى ملف الموقع.</div>` : '';
+  $('#demo').innerHTML = NET.status==='error' ? `<div class="demo" style="background:var(--bad-soft);color:var(--bad)">${esc(NET.msg)}</div>`
+    : NET.status==='connecting' ? `<div class="demo">جارٍ الاتصال بقاعدة البيانات…</div>`
+    : (isT() && B.mode==='local') ? `<div class="demo">وضع تجريبي: المشاركة تعمل الآن بين تبويبات هذا المتصفح فقط. لربط أجهزة الطلاب أضف إعدادات Firebase في أعلى ملف الموقع.</div>` : '';
 }
 function updateTimeline(){
   const c=cur();
