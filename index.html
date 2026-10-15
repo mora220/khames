@@ -425,7 +425,12 @@ function FireBackend(cfg){
     unsubs.push(base().collection('students').onSnapshot(q=>E.emit('students', q.docs.map(d=>d.data())), e=>console.warn(e)));
     unsubs.push(base().collection('answers').onSnapshot(q=>E.emit('answers', q.docs.map(d=>d.data())), e=>console.warn(e)));
   }
-  room.onSnapshot(s=>{ NET.status='ok'; NET.msg=''; const st=s.data()||{}; if(st.session!==sess){ sess=st.session||null; rebind(); } E.emit('state', st); },
+  /* a snapshot served from the local cache does NOT prove the server is reachable */
+  const slow=setTimeout(()=>{ if(NET.status!=='ok'){ NET.status='error';
+    NET.msg='لم يتم الوصول إلى خادم Firestore خلال 12 ثانية. غالباً قاعدة البيانات لم تُنشأ بعد (Firestore Database ← Create database) أو أن الشبكة تحجب الاتصال.'; E.emit('error',{code:'timeout'}); } }, 12000);
+  room.onSnapshot({includeMetadataChanges:true}, s=>{
+    if(!s.metadata.fromCache){ clearTimeout(slow); if(NET.status!=='ok'){ NET.status='ok'; NET.msg=''; E.emit('net'); } }
+    const st=s.data()||{}; if(st.session!==sess){ sess=st.session||null; rebind(); } S.serverState = !s.metadata.fromCache; E.emit('state', st); },
     e=>{ console.warn(e); NET.status='error';
       NET.msg = (e && e.code==='permission-denied') ? 'قاعدة البيانات رفضت الاتصال: انشر قواعد Firestore (Rules) التي تسمح بالمجموعة mawhiba_live.'
               : 'تعذّر الاتصال بقاعدة البيانات: تأكد أن Firestore مفعّل في مشروع Firebase. ('+(e&&e.code||'error')+')';
@@ -451,9 +456,9 @@ async function makeBackend(){
 
 /* ---------------- app state ---------------- */
 let B=null, me=store.get(IDK);
-const S={state:{}, students:[], answers:[]};
+const S={state:{}, students:[], answers:[], serverState:null};
 const L={grid:{}, choice:{}, cmpN:5, confirmReset:false, panelTab:'resp'};
-let shellBuilt=false, stageKey='', joinedSession=null;
+let shellBuilt=false, stageKey='', joinedSession=null, creatingSession=false, lastJoin=0;
 
 const cur = () => Math.min(Math.max(S.state.stage||0,0), STAGES.length-1);
 const isT = () => me && me.role==='teacher';
@@ -474,14 +479,21 @@ function scores(){
   B.on('students', l=>{ S.students=l||[]; onData('students'); });
   B.on('answers', l=>{ S.answers=l||[]; onData('answers'); });
   B.on('error', ()=>{ render(); showNet(); });
+  B.on && B.on('net', ()=>{ render(); showNet(); });
   render();
   setInterval(tick, 1000);
 })();
 
 function onData(kind){
-  if(isT() && kind==='state' && !S.state.session) newSession();
-  if(me && me.role==='student' && S.state.session && joinedSession!==S.state.session){
-    joinedSession=S.state.session; B.join({id:me.sid, name:me.name, at:Date.now()});
+  /* create a session only once, and only from a confirmed server snapshot (not the local cache) */
+  if(isT() && !S.state.session && S.serverState!==false && !creatingSession){ creatingSession=true; newSession(); }
+  if(S.state.session) creatingSession=false;
+  if(me && me.role==='student' && S.state.session){
+    const listed = S.students.some(x=>x.id===me.sid);
+    if(joinedSession!==S.state.session || (!listed && kind==='students' && Date.now()-lastJoin>4000)){
+      joinedSession=S.state.session; lastJoin=Date.now();
+      B.join({id:me.sid, name:me.name, at:Date.now()});
+    }
   }
   render();
 }
@@ -489,7 +501,7 @@ function newSession(){ const now=Date.now(); B.setState({session:uid(), stage:0,
 
 /* ---------------- render: login ---------------- */
 function render(){
-  if(!me){ if(shellBuilt || !$('#login')) renderLogin(); return; }
+  if(!me){ if(shellBuilt || !$('#login')) renderLogin(); showNet(); return; }
   if(!shellBuilt) buildShell();
   updateTop(); updateTimeline(); updateStage(); updatePanel(); tick();
 }
@@ -503,6 +515,7 @@ function renderLogin(){
       <p class="muted">40 دقيقة من الأسئلة التفاعلية: رتّب، احسب، واكتشف القاعدة. كل إجابة صحيحة تمنحك 10 نقاط، وأسرع الإجابات الصحيحة تحصل على نقاط إضافية.</p>
       <div class="hero-sq">${LOSHU.map((v,i)=>`<span style="animation-delay:${i*60}ms">${v}</span>`).join('')}</div>
       <p class="credit">إعداد المعلم: محمد رجب</p>
+      <p class="credit" id="netLogin"></p>
     </div>
     <div class="login-cards">
       <form class="card" id="fStu" autocomplete="off">
@@ -529,7 +542,9 @@ function renderLogin(){
     if($('#tUser').value.trim().toLowerCase()===ADMIN.u && $('#tPass').value.trim()===ADMIN.p){ me={role:'teacher', sid:'teacher', name:'أ. محمد رجب'}; store.set(IDK,me); onData('state'); }
     else $('#tErr').textContent='اسم المستخدم أو كلمة المرور غير صحيحة.'; };
 }
-function showNet(){ if(!me){ const e=$('#stuErr'); if(e && NET.status==='error') e.textContent=NET.msg; } }
+function netLabel(){ return !B ? '🟡 جارٍ التحميل' : B.mode==='firebase'?(NET.status==='ok'?'🟢 متصل مباشر':NET.status==='error'?'🔴 غير متصل':'🟡 جارٍ الاتصال'):'⚪ وضع تجريبي'; }
+function showNet(){ const n=$('#netLogin'); if(n) n.textContent='حالة الاتصال: '+netLabel()+(NET.msg?' — '+NET.msg:'');
+ if(!me){ const e=$('#stuErr'); if(e && NET.status==='error') e.textContent=NET.msg; } }
 function logout(){ me=null; store.set(IDK,null); joinedSession=null; renderLogin(); }
 
 /* ---------------- shell ---------------- */
@@ -551,8 +566,8 @@ function buildShell(){
 }
 function updateTop(){
   $('#who').innerHTML = isT()
-    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><span class="pill" title="حالة الاتصال">${B.mode==='firebase'?(NET.status==='ok'?'🟢 متصل مباشر':NET.status==='error'?'🔴 غير متصل':'🟡 جارٍ الاتصال'):'⚪ وضع تجريبي'}</span><button class="btn ghost" id="out">خروج</button>`
-    : `<span class="pill s">${esc(me.name)}</span><button class="btn ghost" id="out">خروج</button>`;
+    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><span class="pill" title="حالة الاتصال">${netLabel()}</span><button class="btn ghost" id="out">خروج</button>`
+    : `<span class="pill s">${esc(me.name)}</span><span class="pill">${netLabel()}</span><button class="btn ghost" id="out">خروج</button>`;
   $('#out').onclick=logout;
   $('#demo').innerHTML = NET.status==='error' ? `<div class="demo" style="background:var(--bad-soft);color:var(--bad)">${esc(NET.msg)}</div>`
     : NET.status==='connecting' ? `<div class="demo">جارٍ الاتصال بقاعدة البيانات…</div>`
@@ -833,7 +848,7 @@ function updatePanel(){
     const mine=sc.find(x=>x.id===me.sid), rank=sc.findIndex(x=>x.id===me.sid)+1;
     const answered=S.answers.filter(a=>a.sid===me.sid).length, qs=STAGES.filter(x=>x.q).length;
     el.innerHTML = `
-      <section class="pcard"><div class="score-big"><div><h3>نقاطي</h3><span class="muted">${rank?`الترتيب ${rank} من ${sc.length}`:'في انتظار الانضمام…'}</span></div><b>${mine?mine.pts:0}</b></div>
+      <section class="pcard"><div class="score-big"><div><h3>نقاطي</h3><span class="muted">${rank?`الترتيب ${rank} من ${sc.length}`:(S.state.session?'جارٍ تسجيل اسمك…':'في انتظار أن يدخل المعلم ويفتح الحصة…')}</span></div><b>${mine?mine.pts:0}</b></div>
         <div class="meter"><i style="width:${answered/qs*100}%;background:var(--teal)"></i></div><span class="muted">أجبت عن ${answered} من ${qs} سؤالاً</span></section>
       <section class="pcard"><h3>لوحة الصدارة</h3>${lb(5)}</section>`;
   }
