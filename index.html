@@ -232,14 +232,13 @@ table.wt td .inp{min-width:84px;padding:.35em;font-size:1.05rem}
 
 <script>
 /* =====================================================================
-   إعدادات Firebase — الصق إعدادات مشروعك هنا لتعمل مشاركة الطلاب المباشرة
-   مثال:
-   const FIREBASE_CONFIG = { apiKey:"...", authDomain:"...", projectId:"...", appId:"..." };
-   إذا تركتها null يعمل الموقع في "وضع تجريبي" على جهاز واحد (عدة تبويبات).
+   إعدادات Firebase Realtime Database (مشروع khames-d585c)
+   لتغيير قاعدة البيانات ضع رابطها في databaseURL.
    ===================================================================== */
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyAVEFWPTnXDb_BOnx2zdNkmbZNshVwDj9w",
   authDomain: "khames-d585c.firebaseapp.com",
+  databaseURL: "https://khames-d585c-default-rtdb.firebaseio.com",
   projectId: "khames-d585c",
   storageBucket: "khames-d585c.firebasestorage.app",
   messagingSenderId: "793507341843",
@@ -443,10 +442,57 @@ function FireBackend(cfg){
   };
 }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+function RtdbBackend(cfg){
+  const E=Emitter();
+  NET.status='connecting';
+  firebase.initializeApp(cfg);
+  const db=firebase.database();
+  const room=db.ref('mawhiba_live/'+ROOM);
+  let sess=null, offs=[];
+  const fail=(e, where)=>{ console.warn(where, e); NET.status='error';
+    const code=(e&&(e.code||e.message))||'error';
+    NET.msg = /permission/i.test(code) ? 'قاعدة البيانات رفضت الاتصال: من Realtime Database ← Rules اسمح بالقراءة والكتابة على mawhiba_live ثم اضغط Publish.'
+            : 'تعذّر الحفظ أو القراءة من قاعدة البيانات ('+code+').';
+    E.emit('error', e); };
+  const list=snap=>{ const v=snap.val()||{}; return Object.values(v); };
+  function rebind(){
+    offs.forEach(f=>f()); offs=[];
+    if(!sess){ E.emit('students',[]); E.emit('answers',[]); return; }
+    const sr=room.child('sessions/'+sess+'/students'), ar=room.child('sessions/'+sess+'/answers');
+    const f1=sr.on('value', s=>E.emit('students', list(s)), e=>fail(e,'students'));
+    const f2=ar.on('value', s=>E.emit('answers', list(s)), e=>fail(e,'answers'));
+    offs.push(()=>sr.off('value',f1), ()=>ar.off('value',f2));
+  }
+  let everConnected=false;
+  db.ref('.info/connected').on('value', s=>{
+    if(s.val()===true){ everConnected=true; if(NET.status!=='ok' && !/رفضت/.test(NET.msg)){ NET.status='ok'; NET.msg=''; E.emit('net'); } }
+    else if(everConnected){ NET.status='connecting'; NET.msg='انقطع الاتصال… جارٍ إعادة المحاولة'; E.emit('net'); }
+  });
+  setTimeout(()=>{ if(!everConnected){ NET.status='error';
+    NET.msg='لم يتم الوصول إلى قاعدة البيانات خلال 12 ثانية. تأكد من رابط Realtime Database ومن اتصال الإنترنت.'; E.emit('error',{code:'timeout'}); } }, 12000);
+  room.child('state').on('value', s=>{
+    const st=s.val()||{}; if(st.session!==sess){ sess=st.session||null; rebind(); }
+    S.serverState=true; E.emit('state', st);
+  }, e=>fail(e,'state'));
+  const clean=o=>JSON.parse(JSON.stringify(o, (k,v)=>v===undefined?null:v));
+  return {
+    mode:'firebase', on:E.on,
+    setState(p, replace){
+      if(replace) return room.child('state').set(clean(p)).catch(e=>fail(e,'set'));
+      const u={}; Object.keys(p).forEach(k=>{ if(k==='revealed' && p.revealed && typeof p.revealed==='object') Object.keys(p.revealed).forEach(q=>u['revealed/'+q]=p.revealed[q]); else u[k]=p[k]; });
+      return room.child('state').update(clean(u)).catch(e=>fail(e,'update'));
+    },
+    join(s){ if(sess) return room.child('sessions/'+sess+'/students/'+s.id).set(clean(s)).catch(e=>fail(e,'join')); },
+    answer(a){ if(sess) return room.child('sessions/'+sess+'/answers/'+a.qid+'__'+a.sid).set(clean(a)).catch(e=>fail(e,'answer')); }
+  };
+}
 async function makeBackend(){
   if(FIREBASE_CONFIG){
+    const rt=!!FIREBASE_CONFIG.databaseURL;
     for(const src of FB_SOURCES){
-      try{ await loadScript(src+'firebase-app-compat.js'); await loadScript(src+'firebase-firestore-compat.js'); if(window.firebase && firebase.firestore) return FireBackend(FIREBASE_CONFIG); }
+      try{ await loadScript(src+'firebase-app-compat.js'); await loadScript(src+(rt?'firebase-database-compat.js':'firebase-firestore-compat.js'));
+        if(window.firebase && rt && firebase.database) return RtdbBackend(FIREBASE_CONFIG);
+        if(window.firebase && !rt && firebase.firestore) return FireBackend(FIREBASE_CONFIG); }
       catch(e){ console.warn('Firebase load failed from', src, e); }
     }
     NET.status='error'; NET.msg='تعذّر تحميل مكتبة Firebase. تحقق من اتصال الإنترنت ثم حدّث الصفحة.';
