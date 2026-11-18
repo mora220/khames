@@ -177,6 +177,14 @@ table.wt td .inp{min-width:84px;padding:.35em;font-size:1.05rem}
 .bfill{height:100%;border-radius:8px;transition:width .25s}
 .bfill.A{background:var(--teal)}.bfill.B{background:var(--saffron)}
 .chart-wrap{overflow-x:auto}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;max-height:300px;overflow:auto;padding:2px}
+.rname{border:2px solid var(--line);background:var(--surface);border-radius:12px;padding:.55em .6em;font-weight:600;display:grid;gap:2px;text-align:center;transition:transform .12s,border-color .12s}
+.rname:hover{border-color:var(--teal);transform:translateY(-1px)}
+.rname.on{border-color:var(--teal);background:var(--teal-soft);box-shadow:0 0 0 3px color-mix(in srgb,var(--teal) 25%,transparent)}
+.rname.busy{opacity:.75}
+.rname small{font-size:.72rem;color:var(--muted);font-weight:500}
+.warn{background:var(--saffron-soft);border-radius:10px;padding:.5em .8em;font-size:.88rem;margin:10px 0 0}
+textarea.inp{resize:vertical;font-size:1rem;line-height:1.7}
 .trees{display:flex;flex-wrap:wrap;gap:14px;justify-content:center}
 .tree{margin:0;background:var(--surface-2);border-radius:16px;padding:10px 14px;min-width:0;max-width:100%;overflow-x:auto}
 .tree svg{display:block;direction:ltr}
@@ -382,6 +390,8 @@ const FX = (()=>{
     send(){ noise(.18,{freq:2500,q:.7,vol:.12}); tone(880,.12,{type:'sine',vol:.12,slide:1.5,when:.03}); },
     next(){ tone(392,.09,{type:'triangle',vol:.14}); tone(523,.09,{type:'triangle',vol:.14,when:.08}); tone(784,.16,{type:'triangle',vol:.14,when:.16}); },
     tick(){ tone(1200,.04,{type:'square',vol:.05}); },
+    clock(even){ tone(even?1900:1500,.03,{type:'triangle',vol:.05}); noise(.02,{freq:4000,q:2,vol:.03}); },
+    beep(){ tone(880,.14,{type:'sine',vol:.16}); },
     timeUp(){ tone(330,.25,{type:'sawtooth',vol:.08}); tone(247,.4,{type:'sawtooth',vol:.08,when:.22}); },
     correct(){ [523,659,784,1047].forEach((f,i)=>tone(f,.22,{type:'triangle',vol:.17,when:i*.09})); tone(1568,.35,{type:'sine',vol:.08,when:.36}); },
     wrong(){ tone(311,.18,{type:'triangle',vol:.14}); tone(233,.3,{type:'triangle',vol:.14,when:.16}); },
@@ -427,6 +437,8 @@ const FX = (()=>{
     play(name,...a){ try{ S[name] && S[name](...a); }catch(e){} },
     confetti, banner, floatEmoji,
     get muted(){ return muted; },
+    get timerMuted(){ try{ return localStorage.getItem('mw_timer_muted')==='1'; }catch(e){ return false; } },
+    toggleTimer(){ const v=!this.timerMuted; try{ localStorage.setItem('mw_timer_muted', v?'1':'0'); }catch(e){} return v; },
     toggle(){ muted=!muted; try{ localStorage.setItem('mw_muted', muted?'1':'0'); }catch(e){} if(!muted){ ac(); S.click(); } return muted; }
   };
 })();
@@ -548,6 +560,7 @@ function LocalBackend(){
     E.emit('students', Object.values(d.students||{}).filter(x=>x.session===s.session));
     E.emit('answers', Object.values(d.answers||{}).filter(x=>x.session===s.session));
     E.emit('reacts', Object.values(d.reacts||{}).filter(x=>x.session===s.session));
+    E.emit('roster', Object.keys(d.roster||{}).map(id=>Object.assign({id}, d.roster[id])));
   }
   setTimeout(fire,0);
   return {
@@ -555,6 +568,10 @@ function LocalBackend(){
     setState(p, replace){ const d=read(); d.state = replace ? p : Object.assign({}, d.state, p, p.revealed ? {revealed:Object.assign({}, (d.state||{}).revealed, p.revealed)} : {}); write(d); },
     join(s){ const d=read(); d.students=d.students||{}; s.session=d.state.session; d.students[s.session+'|'+s.id]=s; write(d); },
     rename(id,name){ const d=read(), k=d.state.session+'|'+id; if(d.students&&d.students[k]){ d.students[k].name=name; write(d); } },
+    rosterAdd(names){ const d=read(); d.roster=d.roster||{}; names.forEach((n,i)=>d.roster[uid()+i]={name:n,at:Date.now()}); write(d); },
+    rosterRemove(id){ const d=read(); if(d.roster) delete d.roster[id]; write(d); },
+    rosterRename(id,name){ const d=read(); if(d.roster&&d.roster[id]){ d.roster[id].name=name; write(d); } },
+    rosterClear(){ const d=read(); d.roster={}; write(d); },
     remove(id){ const d=read(), ss=d.state.session, k=ss+'|'+id; if(d.students&&d.students[k]) d.students[k].removed=true;
       Object.keys(d.answers||{}).forEach(a=>{ if(d.answers[a].session===ss && d.answers[a].sid===id) delete d.answers[a]; }); write(d); },
     answer(a){ const d=read(); d.answers=d.answers||{}; a.session=d.state.session; d.answers[a.session+'|'+a.qid+'|'+a.sid]=a; write(d); },
@@ -593,6 +610,7 @@ function FireBackend(cfg){
     setState(p, replace){ return (replace ? room.set(p) : room.set(p,{merge:true})).catch(wErr); },
     join(s){ if(sess) return base().collection('students').doc(s.id).set(s,{merge:true}).catch(wErr); },
     rename(id,name){ if(sess) return base().collection('students').doc(id).set({name},{merge:true}).catch(wErr); },
+    rosterAdd(){}, rosterRemove(){}, rosterRename(){}, rosterClear(){},
     remove(id,qids){ if(!sess) return; base().collection('students').doc(id).set({removed:true},{merge:true}).catch(wErr);
       (qids||[]).forEach(q=>base().collection('answers').doc(q+'__'+id).delete().catch(wErr)); },
     answer(a){ if(sess) return base().collection('answers').doc(a.qid+'__'+a.sid).set(a).catch(wErr); },
@@ -623,6 +641,8 @@ function RtdbBackend(cfg){
     const f3=rr.on('value', s=>E.emit('reacts', list(s)), e=>console.warn(e));
     offs.push(()=>sr.off('value',f1), ()=>ar.off('value',f2), ()=>rr.off('value',f3));
   }
+  const rosterRef=db.ref('mawhiba_live/roster');
+  rosterRef.on('value', s=>{ const v=s.val()||{}; E.emit('roster', Object.keys(v).map(id=>Object.assign({id}, v[id]))); }, e=>console.warn(e));
   let everConnected=false;
   db.ref('.info/connected').on('value', s=>{
     if(s.val()===true){ everConnected=true; if(NET.status!=='ok' && !/رفضت/.test(NET.msg)){ NET.status='ok'; NET.msg=''; E.emit('net'); } }
@@ -644,6 +664,10 @@ function RtdbBackend(cfg){
     },
     join(s){ if(sess) return room.child('sessions/'+sess+'/students/'+s.id).set(clean(s)).catch(e=>fail(e,'join')); },
     rename(id,name){ if(sess) return room.child('sessions/'+sess+'/students/'+id+'/name').set(name).catch(e=>fail(e,'rename')); },
+    rosterAdd(names){ const u={}; names.forEach((n,i)=>u[uid()+i]={name:n, at:Date.now()}); return rosterRef.update(u).catch(e=>fail(e,'roster')); },
+    rosterRemove(id){ return rosterRef.child(id).set(null).catch(e=>fail(e,'roster')); },
+    rosterRename(id,name){ return rosterRef.child(id+'/name').set(name).catch(e=>fail(e,'roster')); },
+    rosterClear(){ return rosterRef.set(null).catch(e=>fail(e,'roster')); },
     remove(id,qids){ if(!sess) return; const u={}; u['students/'+id+'/removed']=true; (qids||[]).forEach(q=>u['answers/'+q+'__'+id]=null);
       return room.child('sessions/'+sess).update(u).catch(e=>fail(e,'remove')); },
     answer(a){ if(sess) return room.child('sessions/'+sess+'/answers/'+a.qid+'__'+a.sid).set(clean(a)).catch(e=>fail(e,'answer')); },
@@ -666,7 +690,7 @@ async function makeBackend(){
 
 /* ---------------- app state ---------------- */
 let B=null, me=store.get(IDK);
-const S={state:{}, students:[], allStudents:[], answers:[], serverState:null};
+const S={state:{}, students:[], allStudents:[], answers:[], roster:[], serverState:null};
 const nameOf = (sid, fb) => { const x=S.allStudents.find(y=>y.id===sid); return (x&&x.name)||fb||'طالب'; };
 const L={grid:{}, choice:{}, cmpN:5, confirmReset:false, panelTab:'resp'};
 let shellBuilt=false, stageKey='', joinedSession=null, creatingSession=false, lastJoin=0;
@@ -690,6 +714,7 @@ function scores(){
   B.on('students', l=>{ S.allStudents=l||[]; S.students=S.allStudents.filter(x=>!x.removed); onData('students'); });
   B.on('answers', l=>{ S.answers=l||[]; onData('answers'); });
   B.on('reacts', l=>onReacts(l||[]));
+  B.on('roster', l=>{ S.roster=(l||[]).filter(x=>x&&x.name).sort((a,b)=>a.name.localeCompare(b.name,'ar')); if(!me) updateRosterLogin(); else if(isT()) updateRosterCard(); });
   B.on('error', ()=>{ render(); showNet(); });
   B.on && B.on('net', ()=>{ render(); showNet(); });
   render();
@@ -755,6 +780,8 @@ function onData(kind){
   if(S.state.session) creatingSession=false;
   if(me && me.role==='student' && S.state.session){
     const mineRow = S.allStudents.find(x=>x.id===me.sid);
+    if(mineRow && mineRow.removed && me.fresh){ if(Date.now()-lastJoin>1500){ lastJoin=Date.now(); joinedSession=S.state.session; B.join({id:me.sid, name:me.name, at:Date.now()}); } render(); return; }
+    if(mineRow && !mineRow.removed && me.fresh){ me.fresh=false; store.set(IDK,me); }
     if(mineRow && mineRow.removed){ me=null; store.set(IDK,null); joinedSession=null; renderLogin(); const e=$('#stuErr'); if(e) e.textContent='أزالك المعلم من الحصة. يمكنك الدخول مرة أخرى باسمك الصحيح.'; return; }
     if(mineRow && mineRow.name && mineRow.name!==me.name){ me.name=mineRow.name; store.set(IDK,me); toast('عدّل المعلم اسمك إلى: '+me.name); }
     const listed = !!mineRow;
@@ -769,7 +796,7 @@ function newSession(){ const now=Date.now(); B.setState({session:uid(), stage:0,
 
 /* ---------------- render: login ---------------- */
 function render(){
-  if(!me){ if(shellBuilt || !$('#login')) renderLogin(); showNet(); return; }
+  if(!me){ if(shellBuilt || !$('#login')) renderLogin(); else updateRosterLogin(); showNet(); return; }
   if(!shellBuilt) buildShell();
   updateTop(); updateTimeline(); updateStage(); updatePanel(); tick();
 }
@@ -788,9 +815,9 @@ function renderLogin(){
     <div class="login-cards">
       <form class="card" id="fStu" autocomplete="off">
         <h2>انضم كطالب</h2>
-        <div class="field"><label for="stuName">اكتب اسمك</label><input class="inp" id="stuName" maxlength="30" placeholder="مثال: سارة أحمد" required></div>
+        <div id="rosterBox"><p class="muted">جارٍ تحميل أسماء الطلاب…</p></div>
         <div class="err" id="stuErr"></div>
-        <button class="btn primary" style="width:100%">انضم إلى الحصة</button>
+        <button class="btn primary" id="joinBtn" style="width:100%">انضم إلى الحصة</button>
       </form>
       <details class="card" id="tDetails">
         <summary>دخول المعلم</summary>
@@ -803,12 +830,45 @@ function renderLogin(){
       </details>
     </div>
   </section>`;
-  $('#fStu').onsubmit=e=>{ e.preventDefault(); const n=$('#stuName').value.trim().replace(/\s+/g,' ');
-    if(n.length<2){ $('#stuErr').textContent='اكتب اسمك (حرفان على الأقل).'; return; }
-    me={role:'student', sid:uid(), name:n}; FX.play('join'); FX.confetti(60,{x:innerWidth/2,y:innerHeight/2}); store.set(IDK,me); joinedSession=null; onData('login'); };
+  L.pick=null; rosterLoginKey=''; updateRosterLogin();
+  $('#fStu').onsubmit=e=>{ e.preventDefault(); let sid, n;
+    if(S.roster.length){
+      const r=S.roster.find(x=>x.id===L.pick);
+      if(!r){ $('#stuErr').textContent='اختر اسمك من القائمة أولاً.'; return; }
+      sid='r_'+r.id; n=r.name;
+    } else {
+      n=(($('#stuName')||{}).value||'').trim().replace(/\s+/g,' ');
+      if(n.length<2){ $('#stuErr').textContent='اكتب اسمك (حرفان على الأقل).'; return; }
+      sid=uid();
+    }
+    me={role:'student', sid, name:n, fresh:true}; FX.play('join'); FX.confetti(60,{x:innerWidth/2,y:innerHeight/2}); store.set(IDK,me); joinedSession=null; onData('login'); };
   $('#fT').onsubmit=e=>{ e.preventDefault();
     if($('#tUser').value.trim().toLowerCase()===ADMIN.u && $('#tPass').value.trim()===ADMIN.p){ me={role:'teacher', sid:'teacher', name:'أ. محمد رجب'}; store.set(IDK,me); onData('state'); }
     else $('#tErr').textContent='اسم المستخدم أو كلمة المرور غير صحيحة.'; };
+}
+/* the student chooses his name from the teacher's class list */
+let rosterLoginKey='';
+function updateRosterLogin(){
+  const box=$('#rosterBox'); if(!box) return;
+  const online=new Set(S.students.map(x=>x.id));
+  const key=JSON.stringify([S.roster.map(x=>[x.id,x.name]), [...online], L.pick, B?1:0]);
+  if(key===rosterLoginKey) return; rosterLoginKey=key;
+  if(!S.roster.length){
+    const old=$('#stuName')?$('#stuName').value:'';
+    box.innerHTML=`<div class="field"><label for="stuName">اكتب اسمك</label><input class="inp" id="stuName" maxlength="30" placeholder="مثال: سارة أحمد" value="${esc(old)}"></div>`;
+    return;
+  }
+  const q=(L.rq||'').trim();
+  const list=S.roster.filter(x=>!q || x.name.includes(q));
+  const sel=S.roster.find(x=>x.id===L.pick);
+  box.innerHTML=`
+    <label class="field" for="rq" style="margin-bottom:8px"><span style="font-weight:600">اختر اسمك من القائمة</span></label>
+    ${S.roster.length>12?`<input class="inp" id="rq" placeholder="ابحث عن اسمك…" value="${esc(L.rq||'')}" style="margin-bottom:10px">`:''}
+    <div class="rgrid" role="listbox" aria-label="أسماء الطلاب">${list.map(x=>`<button type="button" role="option" aria-selected="${L.pick===x.id}" class="rname ${L.pick===x.id?'on':''} ${online.has('r_'+x.id)?'busy':''}" data-pick="${x.id}">${esc(x.name)}${online.has('r_'+x.id)?'<small>داخل الحصة</small>':''}</button>`).join('') || '<span class="muted">لا يوجد اسم مطابق</span>'}</div>
+    ${sel && online.has('r_'+sel.id)?`<p class="warn">الاسم «${esc(sel.name)}» داخل الحصة الآن. اضغط «انضم» فقط إذا كنت أنت ${esc(sel.name)}.</p>`:''}
+    <p class="muted" style="font-size:.85rem;margin:8px 0 0">لا تجد اسمك؟ أخبر المعلم ليضيفه.</p>`;
+  box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{ L.pick=b.dataset.pick; $('#stuErr').textContent=''; FX.play('click'); updateRosterLogin(); });
+  const rq=$('#rq'); if(rq){ rq.oninput=()=>{ L.rq=rq.value; const pos=rq.selectionStart; rosterLoginKey=''; updateRosterLogin(); const n=$('#rq'); n.focus(); n.setSelectionRange(pos,pos); }; }
 }
 function netLabel(){ return !B ? '🟡 جارٍ التحميل' : B.mode==='firebase'?(NET.status==='ok'?'🟢 متصل مباشر':NET.status==='error'?'🔴 غير متصل':'🟡 جارٍ الاتصال'):'⚪ وضع تجريبي'; }
 function showNet(){ const n=$('#netLogin'); if(n) n.textContent='حالة الاتصال: '+netLabel()+(NET.msg?' — '+NET.msg:'');
@@ -829,16 +889,18 @@ function buildShell(){
   <div class="tl-legend" id="tlLegend"></div>
   <div class="main">
     <article class="board" id="board"></article>
-    <aside class="panel" id="panel"><div class="pstack" id="pmain"></div><div id="mgr"></div></aside>
+    <aside class="panel" id="panel"><div class="pstack" id="pmain"></div><div id="mgr"></div><div id="roster"></div></aside>
   </div>`;
 }
+function timerBtn(){ const m=FX.timerMuted; return `<button class="btn ghost" id="tmute" aria-label="${m?'تشغيل صوت المؤقت':'كتم صوت المؤقت'}" title="${m?'تشغيل صوت المؤقت':'كتم صوت المؤقت'}">⏱️${m?'🔇':''}</button>`; }
 function muteBtn(){ return `<button class="btn ghost" id="mute" aria-label="${FX.muted?'تشغيل الصوت':'كتم الصوت'}" title="${FX.muted?'تشغيل الصوت':'كتم الصوت'}">${FX.muted?'🔇':'🔊'}</button>`; }
 function updateTop(){
   $('#who').innerHTML = isT()
-    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><span class="pill" title="حالة الاتصال">${netLabel()}</span>${muteBtn()}<button class="btn ghost" id="out">خروج</button>`
-    : `<span class="pill s">${esc(me.name)}</span><span class="pill">${netLabel()}</span>${muteBtn()}<button class="btn ghost" id="out">خروج</button>`;
+    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><span class="pill" title="حالة الاتصال">${netLabel()}</span>${timerBtn()}${muteBtn()}<button class="btn ghost" id="out">خروج</button>`
+    : `<span class="pill s">${esc(me.name)}</span><span class="pill">${netLabel()}</span>${timerBtn()}${muteBtn()}<button class="btn ghost" id="out">خروج</button>`;
   $('#out').onclick=logout;
   $('#mute').onclick=()=>{ FX.toggle(); updateTop(); };
+  $('#tmute').onclick=()=>{ const m=FX.toggleTimer(); toast(m?'تم كتم صوت المؤقت':'تم تشغيل صوت المؤقت'); updateTop(); };
   $('#demo').innerHTML = NET.status==='error' ? `<div class="demo" style="background:var(--bad-soft);color:var(--bad)">${esc(NET.msg)}</div>`
     : NET.status==='connecting' ? `<div class="demo">جارٍ الاتصال بقاعدة البيانات…</div>`
     : (isT() && B.mode==='local') ? `<div class="demo">وضع تجريبي: المشاركة تعمل الآن بين تبويبات هذا المتصفح فقط. لربط أجهزة الطلاب أضف إعدادات Firebase في أعلى ملف الموقع.</div>` : '';
@@ -1218,7 +1280,7 @@ function updatePanel(){
     const rv=$('#reveal'); if(rv) rv.onclick=()=>B.setState({revealed:{[s.id]:true}});
     el.querySelectorAll('[data-cheer]').forEach(b=>b.onclick=()=>B.setState({cheer:{at:Date.now(), msg:b.dataset.cheer}}));
     const pk=$('#peek'); if(pk) pk.onclick=()=>{ L.peek = L.peek===s.id ? null : s.id; stageKey=''; render(); };
-    updateMgr();
+    updateMgr(); updateRosterCard();
     if($('#rs')) $('#rs').onclick=()=>{ L.confirmReset=true; updatePanel(); };
     if($('#rsYes')) $('#rsYes').onclick=()=>{ L.confirmReset=false; L.grid={}; L.choice={}; newSession(); };
     if($('#rsNo')) $('#rsNo').onclick=()=>{ L.confirmReset=false; updatePanel(); };
@@ -1232,8 +1294,40 @@ function updatePanel(){
       <section class="pcard"><h3>تفاعل مع الحصة</h3><div class="reacts">${REACTS.map(e=>`<button class="react-btn" data-r="${e}" aria-label="أرسل ${e}">${e}</button>`).join('')}</div></section>
       <section class="pcard"><h3>لوحة الصدارة</h3>${lb(5)}</section>`;
     el.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ sendReact(b.dataset.r); b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump'); });
-    $('#mgr').innerHTML='';
+    $('#mgr').innerHTML=''; $('#roster').innerHTML='';
   }
+}
+
+/* ---------- teacher: class list (roster) ---------- */
+let rosterKey='';
+function updateRosterCard(){
+  const box=$('#roster'); if(!box || !isT()) return;
+  const key=JSON.stringify([S.roster.map(x=>[x.id,x.name]), L.rOpen, L.rDel, L.rClear]);
+  if(key===rosterKey && box.firstChild) return; rosterKey=key;
+  box.innerHTML=`<section class="pcard">
+    <button class="mgr-head" id="rT" aria-expanded="${!!L.rOpen}"><h3>قائمة أسماء الفصل (${S.roster.length})</h3><span class="muted">${L.rOpen?'إخفاء':'إضافة أسماء'}</span></button>
+    ${L.rOpen?`
+      <label for="rAdd" class="muted" style="font-size:.88rem">اكتب اسماً في كل سطر، أو الصق القائمة كاملة:</label>
+      <textarea class="inp" id="rAdd" rows="5" placeholder="أحمد محمد&#10;سارة علي&#10;يوسف خالد">${esc(L.rDraft||'')}</textarea>
+      <button class="btn primary" id="rAddBtn">إضافة إلى القائمة</button>
+      <ul class="mlist">${S.roster.map(x=> L.rDel===x.id
+        ? `<li class="confirm"><span>حذف <b>${esc(x.name)}</b> من القائمة؟</span><button class="btn danger" data-rdy="${x.id}">نعم</button><button class="btn ghost" data-rno="1">لا</button></li>`
+        : `<li><span class="mname">${esc(x.name)}</span><button class="icon-btn" data-rdel="${x.id}" aria-label="حذف ${esc(x.name)} من القائمة" title="حذف من القائمة">✕</button></li>`).join('') || '<li class="muted">القائمة فارغة: سيكتب الطلاب أسماءهم بأنفسهم.</li>'}</ul>
+      ${S.roster.length?(L.rClear?`<div class="confirm"><span>حذف كل الأسماء؟</span><button class="btn danger" id="rClrY">نعم، احذف الكل</button><button class="btn ghost" id="rClrN">إلغاء</button></div>`:`<button class="btn ghost" id="rClr">حذف القائمة كلها</button>`):''}`:''}
+  </section>`;
+  $('#rT').onclick=()=>{ L.rOpen=!L.rOpen; L.rDel=null; L.rClear=false; updateRosterCard(); };
+  const ta=$('#rAdd'); if(ta) ta.oninput=()=>{ L.rDraft=ta.value; };
+  const add=$('#rAddBtn'); if(add) add.onclick=()=>{
+    const have=new Set(S.roster.map(x=>x.name));
+    const names=[...new Set((ta.value||'').split(/[\n,،]+/).map(x=>x.trim().replace(/\s+/g,' ')).filter(x=>x.length>=2 && !have.has(x)))];
+    if(!names.length){ toast('لا توجد أسماء جديدة لإضافتها'); return; }
+    B.rosterAdd(names); L.rDraft=''; rosterKey=''; toast('تمت إضافة '+names.length+(names.length>10?' اسماً':names.length>2?' أسماء':' اسم')); };
+  box.querySelectorAll('[data-rdel]').forEach(b=>b.onclick=()=>{ L.rDel=b.dataset.rdel; updateRosterCard(); });
+  box.querySelectorAll('[data-rno]').forEach(b=>b.onclick=()=>{ L.rDel=null; updateRosterCard(); });
+  box.querySelectorAll('[data-rdy]').forEach(b=>b.onclick=()=>{ B.rosterRemove(b.dataset.rdy); L.rDel=null; toast('تم حذف الاسم من القائمة'); });
+  if($('#rClr')) $('#rClr').onclick=()=>{ L.rClear=true; updateRosterCard(); };
+  if($('#rClrN')) $('#rClrN').onclick=()=>{ L.rClear=false; updateRosterCard(); };
+  if($('#rClrY')) $('#rClrY').onclick=()=>{ B.rosterClear(); L.rClear=false; toast('تم حذف القائمة'); };
 }
 
 /* ---------- teacher: rename / remove students ---------- */
@@ -1255,7 +1349,7 @@ function updateMgr(){
   box.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{ L.edit=L.del=null; updateMgr(); });
   const save=id=>{ const v=($('#edName').value||'').trim().replace(/\s+/g,' ');
     if(v.length<2){ toast('الاسم قصير جداً'); return; }
-    B.rename(id,v); L.edit=null; toast('تم تعديل الاسم'); updateMgr(); };
+    B.rename(id,v); if(id.startsWith('r_')) B.rosterRename(id.slice(2), v); L.edit=null; toast('تم تعديل الاسم'); updateMgr(); };
   box.querySelectorAll('[data-save]').forEach(b=>b.onclick=()=>save(b.dataset.save));
   const ed=$('#edName'); if(ed) ed.onkeydown=e=>{ if(e.key==='Enter') save(L.edit); if(e.key==='Escape'){ L.edit=null; updateMgr(); } };
   box.querySelectorAll('[data-delyes]').forEach(b=>b.onclick=()=>{ const id=b.dataset.delyes;
@@ -1281,7 +1375,11 @@ function tick(){
   el.classList.toggle('hurry', !over && rem<=10);
   const key=cur()+'|'+at+'|'+rem+'|'+over;
   if(key!==tick.last){ tick.last=key; const sg=STAGES[cur()];
-    if(sg.q && !revealed(sg.id)){ if(!over && rem<=5 && rem>0) FX.play('tick'); if(!over && rem===0) FX.play('timeUp'); } }
+    if(sg.q && !revealed(sg.id) && !FX.timerMuted){
+      if(!over && rem>10) FX.play('clock', rem%2===0);
+      else if(!over && rem>5) FX.play('tick');
+      else if(!over && rem>0) FX.play('beep');
+      else if(!over && rem===0) FX.play('timeUp'); } }
   el.setAttribute('aria-label', over?'تجاوز الوقت':'الوقت المتبقي');
 }
 </script>
