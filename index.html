@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 </head>
 <body>
-<title>شبكات الأعداد والأرقام الستة</title>
+<title>العوامل ومسألة التخييم</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -177,6 +177,42 @@ table.wt td .inp{min-width:84px;padding:.35em;font-size:1.05rem}
 .bfill{height:100%;border-radius:8px;transition:width .25s}
 .bfill.A{background:var(--teal)}.bfill.B{background:var(--saffron)}
 .chart-wrap{overflow-x:auto}
+.trees{display:flex;flex-wrap:wrap;gap:14px;justify-content:center}
+.tree{margin:0;background:var(--surface-2);border-radius:16px;padding:10px 14px;min-width:0;max-width:100%;overflow-x:auto}
+.tree svg{display:block;direction:ltr}
+.fx-canvas{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:50}
+.fx-banner{position:fixed;top:calc(18% + env(safe-area-inset-top,0px));inset-inline:0;margin:auto;width:max-content;max-width:min(92vw,640px);z-index:60;text-align:center;
+  background:var(--surface);color:var(--ink);border-radius:22px;padding:18px 28px;box-shadow:0 20px 60px rgba(0,0,0,.25);border:3px solid var(--saffron);animation:bannerIn .5s cubic-bezier(.2,1.6,.4,1) both;pointer-events:none}
+.fx-banner.soft{border-color:var(--teal)}
+.fx-banner.out{animation:bannerOut .5s ease both}
+.fx-b-main{font-family:var(--display);font-size:clamp(1.5rem,4.5vw,2.4rem);font-weight:800;line-height:1.3}
+.fx-b-sub{color:var(--muted);font-weight:600;margin-top:4px}
+@keyframes bannerIn{from{transform:scale(.4) translateY(30px);opacity:0}to{transform:none;opacity:1}}
+@keyframes bannerOut{to{transform:translateY(-30px) scale(.9);opacity:0}}
+.fx-float{position:fixed;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:55;pointer-events:none;display:grid;justify-items:center;animation:floatUp 3.2s ease-out forwards}
+.fx-e{font-size:2.6rem;line-height:1}
+.fx-l{background:var(--surface);color:var(--ink);border-radius:999px;padding:.1em .7em;font-size:.82rem;font-weight:700;box-shadow:var(--shadow);margin-top:2px;white-space:nowrap}
+@keyframes floatUp{0%{transform:translateY(0) scale(.6);opacity:0}12%{opacity:1;transform:translateY(-40px) scale(1.15)}100%{transform:translateY(-70vh) scale(1);opacity:0}}
+.cheer-row{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.btn.cheer{background:var(--saffron-soft);color:var(--ink);padding:.55em .3em;font-size:.9rem}
+.btn.cheer:active{transform:scale(.94)}
+.reacts{display:grid;grid-template-columns:repeat(6,1fr);gap:6px}
+.react-btn{border:0;background:var(--surface-2);border-radius:12px;font-size:1.6rem;padding:.25em 0;transition:transform .15s}
+.react-btn:hover{transform:scale(1.15)}
+.react-btn.bump{animation:bump .35s ease}
+@keyframes bump{50%{transform:scale(1.4) rotate(-8deg)}}
+.pcard.streak{grid-template-columns:auto 1fr;display:grid;align-items:center;gap:10px;background:linear-gradient(135deg,var(--saffron-soft),var(--surface))}
+.pcard.streak b{font-family:var(--display);font-size:2rem}
+.timer.hurry{background:var(--bad);color:#fff;animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{transform:scale(1.08)}}
+.board.enter{animation:boardIn .45s cubic-bezier(.2,1.2,.4,1) both}
+@keyframes boardIn{from{transform:translateY(16px) scale(.98);opacity:.2}to{transform:none;opacity:1}}
+.bounce{display:inline-block;animation:bounce .8s ease infinite}
+@keyframes bounce{50%{transform:translateY(-6px) rotate(10deg)}}
+.opt:not(:disabled):hover{border-color:var(--teal);transform:translateY(-1px)}
+.opt{transition:transform .12s,border-color .12s,background .12s}
+.tok:active,.dg-slot:active,.btn:active{transform:scale(.96)}
+.names span{animation:pop .45s cubic-bezier(.2,1.6,.4,1) both}
 .pstack{display:grid;gap:14px}
 .mgr-head{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;width:100%}
 .mgr-head:focus-visible{outline:3px solid var(--teal);outline-offset:4px;border-radius:8px}
@@ -286,7 +322,7 @@ const FIREBASE_CONFIG = {
   appId: "1:793507341843:web:e33764a50db96c5554c1e6"
 };
 
-const ROOM = 'g5-factors-multiples';
+const ROOM = 'g5-factor-trees-camp';
 const ADMIN = { u: 'ragab', p: '141192' };
 const IDK = 'mw5_identity_v1';
 const FB_SOURCES = ['https://www.gstatic.com/firebasejs/10.12.2/','https://cdn.jsdelivr.net/npm/firebase@10.12.2/'];
@@ -313,100 +349,184 @@ function lines(n, corners){
   return L;
 }
 
+/* =====================================================================
+   المؤثرات: أصوات مولّدة (بدون ملفات)، تصفيق، قصاصات ملوّنة، تشجيع
+   ===================================================================== */
+const FX = (()=>{
+  let ctx=null, muted=false;
+  try{ muted = localStorage.getItem('mw_muted')==='1'; }catch(e){}
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function ac(){ if(!ctx){ try{ ctx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return null; } } if(ctx.state==='suspended') ctx.resume(); return ctx; }
+  addEventListener('pointerdown', ()=>ac(), {passive:true});
+  addEventListener('keydown', ()=>ac());
+  function tone(f, dur, {type='sine', vol=.18, when=0, slide=0}={}){
+    const c=ac(); if(!c||muted) return; const t=c.currentTime+when;
+    const o=c.createOscillator(), g=c.createGain(); o.type=type; o.frequency.setValueAtTime(f,t);
+    if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(40,f*slide), t+dur);
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+.015); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t+dur+.05);
+  }
+  let noiseBuf=null;
+  function noise(dur, {when=0, vol=.25, freq=1500, q=1, type='bandpass'}={}){
+    const c=ac(); if(!c||muted) return; const t=c.currentTime+when;
+    if(!noiseBuf){ noiseBuf=c.createBuffer(1, c.sampleRate*1, c.sampleRate); const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1; }
+    const s=c.createBufferSource(); s.buffer=noiseBuf; s.loop=true;
+    const fl=c.createBiquadFilter(); fl.type=type; fl.frequency.value=freq; fl.Q.value=q;
+    const g=c.createGain(); g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(vol,t+.004); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    s.connect(fl).connect(g).connect(c.destination); s.start(t, Math.random()*.5); s.stop(t+dur+.02);
+  }
+  const S = {
+    click(){ tone(660,.06,{type:'triangle',vol:.12}); },
+    pop(){ tone(520,.09,{type:'sine',vol:.2,slide:1.8}); },
+    join(){ tone(660,.1,{type:'triangle',vol:.16}); tone(990,.14,{type:'triangle',vol:.16,when:.09}); },
+    send(){ noise(.18,{freq:2500,q:.7,vol:.12}); tone(880,.12,{type:'sine',vol:.12,slide:1.5,when:.03}); },
+    next(){ tone(392,.09,{type:'triangle',vol:.14}); tone(523,.09,{type:'triangle',vol:.14,when:.08}); tone(784,.16,{type:'triangle',vol:.14,when:.16}); },
+    tick(){ tone(1200,.04,{type:'square',vol:.05}); },
+    timeUp(){ tone(330,.25,{type:'sawtooth',vol:.08}); tone(247,.4,{type:'sawtooth',vol:.08,when:.22}); },
+    correct(){ [523,659,784,1047].forEach((f,i)=>tone(f,.22,{type:'triangle',vol:.17,when:i*.09})); tone(1568,.35,{type:'sine',vol:.08,when:.36}); },
+    wrong(){ tone(311,.18,{type:'triangle',vol:.14}); tone(233,.3,{type:'triangle',vol:.14,when:.16}); },
+    drum(){ for(let i=0;i<14;i++) noise(.05,{when:i*.055,freq:180+Math.random()*80,q:.8,vol:.18+i*.012,type:'lowpass'}); noise(.6,{when:.8,freq:6000,q:.4,vol:.16,type:'highpass'}); tone(110,.4,{type:'sine',vol:.25,when:.78}); },
+    applause(sec=2.6, vol=.22){ const n=Math.round(sec*38); for(let i=0;i<n;i++){ const w=Math.random()*sec; const fade=1-Math.max(0,(w-sec*.6)/(sec*.4)); noise(.03+Math.random()*.03,{when:w,freq:900+Math.random()*1800,q:1.2+Math.random(),vol:vol*fade*(.5+Math.random()*.6)}); } },
+    fanfare(){ const n=[[523,0],[523,.14],[523,.28],[659,.42],[784,.62],[659,.86],[784,1.0],[1047,1.2]]; n.forEach(([f,w],i)=>tone(f,i===7?.7:.16,{type:'sawtooth',vol:.07,when:w})); n.forEach(([f,w],i)=>tone(f*.5,i===7?.7:.16,{type:'triangle',vol:.1,when:w})); }
+  };
+  /* confetti */
+  let cv=null, cx=null, parts=[], raf=0;
+  const COLORS=['#F2B705','#0E7C70','#2BB3A5','#E4572E','#7B61FF','#FFD166','#23824A'];
+  function confetti(n=140, origin){
+    if(reduce) return;
+    if(!cv){ cv=document.createElement('canvas'); cv.className='fx-canvas'; document.body.appendChild(cv); cx=cv.getContext('2d'); }
+    const W=cv.width=innerWidth*devicePixelRatio, H=cv.height=innerHeight*devicePixelRatio; cx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+    for(let i=0;i<n;i++){ const ox=origin?origin.x:Math.random()*innerWidth, oy=origin?origin.y:-20;
+      parts.push({x:ox,y:oy,vx:(Math.random()-.5)*(origin?14:4),vy:origin?-(6+Math.random()*9):(2+Math.random()*4),r:4+Math.random()*5,rot:Math.random()*6,vr:(Math.random()-.5)*.3,c:COLORS[i%COLORS.length],life:0,shape:Math.random()<.3?'c':'r'}); }
+    if(!raf) loop();
+  }
+  function loop(){
+    cx.clearRect(0,0,innerWidth,innerHeight);
+    parts.forEach(p=>{ p.vy+=.18; p.vx*=.99; p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr; p.life++;
+      cx.save(); cx.translate(p.x,p.y); cx.rotate(p.rot); cx.fillStyle=p.c;
+      if(p.shape==='c'){ cx.beginPath(); cx.arc(0,0,p.r*.6,0,7); cx.fill(); } else cx.fillRect(-p.r/2,-p.r/4,p.r,p.r/2);
+      cx.restore(); });
+    parts=parts.filter(p=>p.y<innerHeight+30 && p.life<420);
+    raf = parts.length ? requestAnimationFrame(loop) : (cx.clearRect(0,0,innerWidth,innerHeight), 0);
+  }
+  /* big banner message */
+  function banner(text, sub, kind='good'){
+    const b=document.createElement('div'); b.className='fx-banner '+kind; b.setAttribute('role','status');
+    b.innerHTML=`<div class="fx-b-main">${text}</div>${sub?`<div class="fx-b-sub">${sub}</div>`:''}`;
+    document.body.appendChild(b); setTimeout(()=>b.classList.add('out'), 2400); setTimeout(()=>b.remove(), 3000);
+  }
+  /* floating emoji */
+  function floatEmoji(e, label){
+    if(reduce){ return; }
+    const f=document.createElement('div'); f.className='fx-float';
+    f.style.insetInlineStart=(8+Math.random()*80)+'%';
+    f.innerHTML=`<span class="fx-e">${e}</span>${label?`<span class="fx-l">${label}</span>`:''}`;
+    document.body.appendChild(f); setTimeout(()=>f.remove(), 3200);
+  }
+  return {
+    play(name,...a){ try{ S[name] && S[name](...a); }catch(e){} },
+    confetti, banner, floatEmoji,
+    get muted(){ return muted; },
+    toggle(){ muted=!muted; try{ localStorage.setItem('mw_muted', muted?'1':'0'); }catch(e){} if(!muted){ ac(); S.click(); } return muted; }
+  };
+})();
+const PRAISE = ['أحسنت يا بطل! 🌟','إجابة عبقرية! 🧠','ممتاز! استمر 🚀','رائع جداً! 👏','ما شاء الله عليك! 💯','أنت نجم الحصة! ⭐'];
+const COMFORT = ['لا بأس! ركّز في الحل 💪','قريب جداً! جرّب في السؤال القادم 🌱','كل خطأ خطوة نحو الفهم 📘','المرة القادمة لك! 💪'];
+const pick = a => a[Math.floor(Math.random()*a.length)];
+const REACTS = ['👏','🔥','😍','🤩','💯','🤔'];
+
 /* ---------------- lesson content ---------------- */
 const ACTS = {
   0:{name:'الحصة', sub:'', cls:'a0'},
-  1:{name:'النشاط الأول', sub:'شبكات الأعداد', cls:'a5'},
-  2:{name:'النشاط الثاني', sub:'الأرقام الستة', cls:'a6'}
+  3:{name:'النشاط الثالث', sub:'الرسم الشجري للعوامل', cls:'a5'},
+  4:{name:'النشاط الرابع', sub:'عدد العوامل', cls:'a6'},
+  5:{name:'النشاط الخامس', sub:'مسألة التخييم', cls:'a5'}
 };
 const LOSHU = [2,7,6,9,5,1,4,3,8];
-const HERO = [3,2,1,6,5,4,9,8,7];
+const HERO = [2,3,5,7,11,13,17,19,23];
+/* tree: [number, left, right]  — a bare number is a leaf */
 const STAGES = [
-  {id:'lobby', act:0, min:3, title:'الانضمام والتهيئة', kind:'lobby'},
+  {id:'lobby', act:0, min:2, title:'الانضمام والتهيئة', kind:'lobby'},
 
-  /* ===== النشاط الأول: شبكات الأعداد ===== */
-  {id:'g1', act:1, min:2, title:'موقع العدد 31', viz:{grid:{cols:3, rows:6, target:31}},
-   prompt:'إذا استمر النمط نفسه، في أي عمود وأي صف يقع العدد <b>31</b>؟',
-   q:{type:'num', fields:[{l:'العمود',a:1},{l:'الصف',a:11}]},
-   explain:'31 = 3 × 10 + 1، فيقع في العمود 1 من الصف 11.'},
+  /* ===== النشاط الثالث: الرسم الشجري للعوامل ===== */
+  {id:'t1', act:3, min:2, title:'نهايات الفروع', viz:{trees:[[36,[4,2,2],[9,3,3]]]},
+   prompt:'هذا رسم شجري لعوامل العدد <b>36</b>. ما الأعداد في نهايات الفروع؟',
+   q:{type:'choice', opts:['4 ، 9','2 ، 2 ، 3 ، 3','6 ، 6','2 ، 3 ، 6'], a:1},
+   explain:'نتوقف عندما نصل إلى أعداد لا تتجزأ: 36 = 2 × 2 × 3 × 3.'},
 
-  {id:'g2', act:1, min:2, title:'موقع العدد 299', viz:{grid:{cols:3, rows:3, target:299}},
-   prompt:'في أي عمود وأي صف يقع العدد <b>299</b>؟',
-   q:{type:'num', fields:[{l:'العمود',a:2},{l:'الصف',a:100}]},
-   explain:'299 = 3 × 99 + 2، فيقع في العمود 2 من الصف 100.'},
+  {id:'t2', act:3, min:2, title:'جملة أميرة', viz:{trees:[[36,[6,2,3],[6,2,3]],[36,2,[18,2,[9,3,3]]]]},
+   prompt:'هذان رسمان آخران للعدد 36. تقول أميرة: «في كل رسم شجري لعوامل عدد ما، تكون الأعداد في نهايات الفروع متساوية». هل هي على صواب؟',
+   q:{type:'choice', opts:['نعم، النهايات دائماً 2 ، 2 ، 3 ، 3 مهما بدأنا','لا، النهايات تتغير حسب طريقة البدء','لا، لأن الرسمين مختلفان في الشكل'], a:0},
+   explain:'مهما اختلف شكل الرسم، تنتهي الفروع بالأعداد نفسها: 2 ، 2 ، 3 ، 3.'},
 
-  {id:'g3', act:1, min:2, title:'العمود الثالث', viz:{grid:{cols:3, rows:4, hlCol:3}},
-   prompt:'أعداد العمود الثالث هي: 3، 6، 9، 12، … وهي مضاعفات العدد:',
-   q:{type:'choice', opts:['2','3','6','9'], a:1},
-   explain:'أعداد العمود الثالث 3 × 1 ، 3 × 2 ، 3 × 3 ، … فهي مضاعفات العدد 3.'},
+  {id:'t3', act:3, min:2, title:'جملة فريد',
+   prompt:'يقول فريد: «في كل رسم شجري تكون الأعداد في نهايات الفروع …». أكمل الجملة الصحيحة:',
+   q:{type:'choice', opts:['أعداداً زوجية','أعداداً أولية','أعداداً فردية','مربعات كاملة'], a:1},
+   explain:'نستمر في التحليل حتى نصل إلى أعداد أولية لا يمكن تحليلها، مثل 2 و 3 و 5 و 7.'},
 
-  {id:'g4', act:1, min:2, title:'جملة سامية',
-   prompt:'العدد الذي يزيد <b>1</b> على أحد مضاعفات العدد 3 يقع في العمود:',
-   q:{type:'choice', opts:['الأول','الثاني','الثالث','لا يمكن تحديده'], a:0},
-   explain:'مثل 4 = 3 + 1 و 10 = 9 + 1 و 31 = 30 + 1، وكلها في العمود الأول. إذن جملة سامية صحيحة.'},
+  {id:'t4', act:3, min:2, title:'العدد 24', viz:{trees:[[24,[4,2,2],[6,2,3]]], onReveal:true},
+   prompt:'كوّن في ذهنك رسماً شجرياً لعوامل العدد <b>24</b>.',
+   q:{type:'num', fields:[{l:'كم مرة يظهر العدد 2 في النهايات؟',a:3},{l:'العدد الأولي الآخر في النهايات',a:3}]},
+   explain:'24 = 2 × 2 × 2 × 3.'},
 
-  {id:'g5', act:1, min:2, title:'جملة كريم', viz:{grid:{cols:3, rows:4, hlCol:3}},
-   prompt:'في الصف 4 يقع العدد 12 في العمود 3. رقم الصف <b>4</b> بالنسبة للعدد <b>12</b> هو:',
-   q:{type:'choice', opts:['عامل من عوامله','مضاعف له','لا علاقة بينهما'], a:0},
-   explain:'12 = 3 × 4، إذن 4 عامل من عوامل 12. وهذا صحيح في كل صف: العدد في العمود 3 = 3 × رقم الصف، فجملة كريم صحيحة.'},
+  {id:'t5', act:3, min:2, title:'العدد الأولي',
+   prompt:'أيّ العبارات الآتية <b>صحيحة</b>؟',
+   q:{type:'choice', opts:['جميع الأعداد الفردية أولية','العدد 2 هو العدد الزوجي الأولي الوحيد','جميع الأعداد الأولية فردية','يوجد ستة أعداد أولية بين 30 و 50'], a:1},
+   explain:'9 فردي وليس أولياً، و 2 أولي وزوجي، وبين 30 و 50 خمسة أعداد أولية فقط: 31 ، 37 ، 41 ، 43 ، 47. العدد الأولي له عاملان فقط: 1 ونفسه، لذلك لا يوجد له رسم شجري.'},
 
-  {id:'g6', act:1, min:2, title:'العمود الثاني',
-   prompt:'أيّ الأعداد الآتية يقع في <b>العمود الثاني</b> في الشبكة نفسها ذات الأعمدة الثلاثة؟',
-   q:{type:'choice', opts:['21','22','23','24'], a:2},
-   explain:'أعداد العمود الثاني تزيد 2 على مضاعف للعدد 3: 23 = 21 + 2. أما 21 و 24 ففي العمود 3، و 22 في العمود 1.'},
+  {id:'t6', act:3, min:2, title:'ثلاثة عوامل',
+   prompt:'يقول خالد: للعدد 9 ثلاثة عوامل. ويقول فادي: للعدد 10 ثلاثة عوامل. أيهما على صواب؟ وما الأعداد التي لها ثلاثة عوامل؟',
+   q:{type:'choice', opts:['فادي، والأعداد الزوجية لها ثلاثة عوامل','خالد، والأعداد التي لها ثلاثة عوامل هي مربعات الأعداد الأولية مثل 4 و 9 و 25 و 49','كلاهما على صواب','خالد، وكل الأعداد الفردية لها ثلاثة عوامل'], a:1},
+   explain:'عوامل 9: 1 ، 3 ، 9 (ثلاثة). عوامل 10: 1 ، 2 ، 5 ، 10 (أربعة). الأعداد التي لها ثلاثة عوامل بين 1 و 50: 4 ، 9 ، 25 ، 49، وهي مربعات أعداد أولية.'},
 
-  {id:'g7', act:1, min:2, title:'شبكة من 4 أعمدة', viz:{grid:{cols:4, rows:3, target:50}},
-   prompt:'في شبكة من <b>4 أعمدة</b>، في أي عمود وأي صف يقع العدد <b>50</b>؟',
-   q:{type:'num', fields:[{l:'العمود',a:2},{l:'الصف',a:13}]},
-   explain:'50 = 4 × 12 + 2، فيقع في العمود 2 من الصف 13.'},
+  /* ===== النشاط الرابع: عدد العوامل ===== */
+  {id:'f1', act:4, min:2, title:'عوامل العدد 12', viz:{trees:[[12,3,[4,2,2]]]},
+   prompt:'استعمل الرسم الشجري: كم عاملاً للعدد <b>12</b> بما فيها 1 والعدد نفسه؟',
+   q:{type:'num', fields:[{l:'عدد العوامل',a:6}]},
+   explain:'عوامل 12: 1 ، 2 ، 3 ، 4 ، 6 ، 12. نكوّنها من ضرب النهايات 2 ، 2 ، 3 بطرق مختلفة: 2 ، 3 ، 2 × 2 ، 2 × 3 ، 2 × 2 × 3، مع العدد 1.'},
 
-  /* ===== النشاط الثاني: الأرقام الستة ===== */
-  {id:'d1', act:2, min:2, title:'مجموع الأرقام',
-   prompt:'نكوّن أعداداً من ستة أرقام باستعمال <b>1، 2، 3، 4، 5، 6</b> بأي ترتيب. ما مجموع أرقام أي عدد منها؟',
-   q:{type:'num', fields:[{l:'مجموع الأرقام',a:21}]},
-   explain:'1 + 2 + 3 + 4 + 5 + 6 = 21 مهما تغيّر الترتيب.'},
+  {id:'f2', act:4, min:2, title:'عوامل العدد 24', viz:{trees:[[24,[4,2,2],[6,2,3]]], onReveal:true},
+   prompt:'كم عاملاً للعدد <b>24</b>؟',
+   q:{type:'num', fields:[{l:'عدد العوامل',a:8}]},
+   explain:'عوامل 24: 1 ، 2 ، 3 ، 4 ، 6 ، 8 ، 12 ، 24.'},
 
-  {id:'d2', act:2, min:2, title:'مضاعفات 3',
-   prompt:'بما أن مجموع الأرقام 21، فكل هذه الأعداد من مضاعفات العدد:',
-   q:{type:'choice', opts:['3','4','5','9'], a:0},
-   explain:'21 يقبل القسمة على 3، فكل عدد مجموع أرقامه 21 من مضاعفات 3.'},
+  {id:'f3', act:4, min:2, title:'عوامل العدد 36', viz:{trees:[[36,[4,2,2],[9,3,3]]], onReveal:true},
+   prompt:'كم عاملاً للعدد <b>36</b>؟',
+   q:{type:'num', fields:[{l:'عدد العوامل',a:9}]},
+   explain:'عوامل 36: 1 ، 2 ، 3 ، 4 ، 6 ، 9 ، 12 ، 18 ، 36. عدد العوامل فردي لأن 36 مربع كامل (6 × 6).'},
 
-  {id:'d3', act:2, min:3, title:'مضاعف للعدد 4',
-   prompt:'كوّن عدداً من الأرقام الستة يكون من <b>مضاعفات العدد 4</b>.',
-   q:{type:'digits', d:4, ex:'345612'},
-   explain:'يكفي أن يكون العدد المكوّن من آخر رقمين من مضاعفات 4، مثل 12 أو 16 أو 24 أو 32 أو 36 أو 52 أو 56 أو 64.'},
+  {id:'f4', act:4, min:3, title:'عوامل العدد 135', viz:{trees:[[135,5,[27,3,[9,3,3]]]], onReveal:true},
+   prompt:'استعمل الرسم الشجري لإيجاد عوامل العدد <b>135</b>.',
+   q:{type:'num', fields:[{l:'عدد العوامل',a:8},{l:'أكبر عامل غير 135',a:45}]},
+   explain:'135 = 3 × 3 × 3 × 5. العوامل: 1 ، 3 ، 5 ، 9 ، 15 ، 27 ، 45 ، 135.'},
 
-  {id:'d4', act:2, min:2, title:'مضاعف للعدد 5',
-   prompt:'ليكون العدد من <b>مضاعفات العدد 5</b>، يجب أن يكون رقم آحاده:',
-   q:{type:'choice', opts:['2','5','6','أي رقم'], a:1},
-   explain:'مضاعفات 5 آحادها 0 أو 5، ولا يوجد 0 بين الأرقام، فيجب أن يكون الآحاد 5. مثل 123465.'},
+  /* ===== النشاط الخامس: مسألة التخييم ===== */
+  {id:'c1', act:5, min:2, title:'93 طالباً',
+   prompt:'شارك <b>93</b> طالباً في المخيم، فيمكن تقسيمهم إلى 31 مجموعة في كل منها 3 طلاب. لماذا لا يمكن أن تضم كل مجموعة طالبين أو خمسة طلاب؟',
+   q:{type:'choice', opts:['لأن 93 لا يقبل القسمة على 2 ولا على 5','لأن 93 عدد أولي','لأن 31 أكبر من 6','لأن 93 من مضاعفات 5'], a:0},
+   explain:'93 فردي فلا يقبل القسمة على 2، وآحاده 3 فلا يقبل القسمة على 5. أما 93 = 3 × 31.'},
 
-  {id:'d5', act:2, min:2, title:'مضاعفات 10',
-   prompt:'لماذا لا يمكن تكوين عدد من <b>مضاعفات العدد 10</b>؟',
-   q:{type:'choice', opts:['لأن مجموع الأرقام 21','لأنه لا يوجد الرقم 0 بين الأرقام','لأن العدد من ستة أرقام','لأن الرقم 5 موجود'], a:1},
-   explain:'كل مضاعفات العدد 10 آحادها 0.'},
+  {id:'c2', act:5, min:2, title:'88 طالباً',
+   prompt:'شارك <b>88</b> طالباً، ولا يمكن وضع أكثر من <b>6</b> طلاب في المجموعة. ما أكبر عدد للطلاب في المجموعة؟ وكم مجموعة نكوّن؟',
+   q:{type:'num', fields:[{l:'عدد الطلاب في كل مجموعة',a:4},{l:'عدد المجموعات',a:22}]},
+   explain:'88 يقبل القسمة على 2 و 4 فقط من بين 2 إلى 6. أكبرها 4: 88 ÷ 4 = 22 مجموعة.'},
 
-  {id:'d6', act:2, min:2, title:'مضاعفات 12 دون قسمة',
-   prompt:'نتحقق أن العدد من <b>مضاعفات 12</b> دون قسمة إذا كان:',
-   q:{type:'choice', opts:['آحاده 2','مجموع أرقامه من مضاعفات 3، وآخر رقمين من مضاعفات 4','مجموع أرقامه 12','عدداً زوجياً'], a:1},
-   explain:'12 = 3 × 4، فنطبّق قاعدة القسمة على 3 وقاعدة القسمة على 4 معاً.'},
+  {id:'c3', act:5, min:2, title:'العدد الأنسب',
+   prompt:'أيّ الأعداد الآتية من الطلاب يسمح بأكبر عدد من طرق التوزيع (مجموعات من 2 إلى 6 طلاب)؟',
+   q:{type:'choice', opts:['88','90','92','98'], a:1},
+   explain:'90 يقبل القسمة على 2 و 3 و 5 و 6 (4 طرق). أما 88 و 92 فطريقتان فقط (2 و 4)، و 98 طريقة واحدة (2). وبين 80 و 100 يعطي 84 و 96 أيضاً 4 طرق.'},
 
-  {id:'d7', act:2, min:3, title:'مضاعف للعدد 12',
-   prompt:'كوّن عدداً من الأرقام الستة يكون من <b>مضاعفات العدد 12</b>.',
-   q:{type:'digits', d:12, ex:'345612'},
-   explain:'كل الأعداد من مضاعفات 3، فيكفي أن يكون آخر رقمين من مضاعفات 4. مثال: 345612 = 12 × 28,801.'},
+  {id:'c4', act:5, min:2, title:'أقل من 80',
+   prompt:'ما أكبر عدد أقل من <b>80</b> يسمح بتكوين مجموعات من 2 و 3 و 4 و 5 و 6 طلاب؟',
+   q:{type:'num', fields:[{l:'عدد الطلاب',a:60}]},
+   explain:'نحتاج مضاعفاً مشتركاً للأعداد 2 ، 3 ، 4 ، 5 ، 6، وأصغرها 60. المضاعف التالي 120 أكبر من 80، إذن الإجابة 60.'},
 
-  {id:'d8', act:2, min:2, title:'مضاعفات 9',
-   prompt:'لماذا لا يمكن تكوين عدد من <b>مضاعفات العدد 9</b>؟',
-   q:{type:'choice', opts:['لأن الرقم 9 غير موجود','لأن مجموع الأرقام 21 لا يقبل القسمة على 9','لأن العدد زوجي','لأن العدد من مضاعفات 3'], a:1},
-   explain:'يكون العدد من مضاعفات 9 إذا قبل مجموع أرقامه القسمة على 9، و 21 لا يقبل ذلك.'},
+  {id:'c5', act:5, min:2, title:'أكبر من 100',
+   prompt:'ما أصغر عدد أكبر من <b>100</b> يسمح بتكوين مجموعات من 2 و 3 و 4 و 5 و 6 طلاب؟',
+   q:{type:'num', fields:[{l:'عدد الطلاب',a:120}]},
+   explain:'مضاعفات 60: 60 ، 120 ، 180 … وأول مضاعف أكبر من 100 هو 120.'},
 
-  {id:'d9', act:2, min:2, title:'ممكن أم مستحيل؟',
-   prompt:'أيّ المضاعفات الآتية <b>لا يمكن</b> تكوينه بالأرقام الستة؟',
-   q:{type:'choice', opts:['مضاعف للعدد 15','مضاعف للعدد 18','مضاعف للعدد 24'], a:1},
-   explain:'15 ممكن: آحاده 5، مثل 123465. و 24 ممكن: آخر ثلاثة أرقام من مضاعفات 8، مثل 123456. أما 18 فمستحيل لأنه يحتاج أن يكون من مضاعفات 9.'},
-
-  {id:'end', act:0, min:3, title:'الختام والتكريم', kind:'end'}
+  {id:'end', act:0, min:2, title:'الختام والتكريم', kind:'end'}
 ];
 const TOTAL = STAGES.reduce((a,s)=>a+s.min,0);
 const startMin = i => STAGES.slice(0,i).reduce((a,s)=>a+s.min,0);
@@ -427,6 +547,7 @@ function LocalBackend(){
     E.emit('state', s);
     E.emit('students', Object.values(d.students||{}).filter(x=>x.session===s.session));
     E.emit('answers', Object.values(d.answers||{}).filter(x=>x.session===s.session));
+    E.emit('reacts', Object.values(d.reacts||{}).filter(x=>x.session===s.session));
   }
   setTimeout(fire,0);
   return {
@@ -436,7 +557,8 @@ function LocalBackend(){
     rename(id,name){ const d=read(), k=d.state.session+'|'+id; if(d.students&&d.students[k]){ d.students[k].name=name; write(d); } },
     remove(id){ const d=read(), ss=d.state.session, k=ss+'|'+id; if(d.students&&d.students[k]) d.students[k].removed=true;
       Object.keys(d.answers||{}).forEach(a=>{ if(d.answers[a].session===ss && d.answers[a].sid===id) delete d.answers[a]; }); write(d); },
-    answer(a){ const d=read(); d.answers=d.answers||{}; a.session=d.state.session; d.answers[a.session+'|'+a.qid+'|'+a.sid]=a; write(d); }
+    answer(a){ const d=read(); d.answers=d.answers||{}; a.session=d.state.session; d.answers[a.session+'|'+a.qid+'|'+a.sid]=a; write(d); },
+    react(r){ const d=read(); d.reacts=d.reacts||{}; r.session=d.state.session; d.reacts[r.session+'|'+r.sid]=r; write(d); }
   };
 }
 
@@ -473,7 +595,8 @@ function FireBackend(cfg){
     rename(id,name){ if(sess) return base().collection('students').doc(id).set({name},{merge:true}).catch(wErr); },
     remove(id,qids){ if(!sess) return; base().collection('students').doc(id).set({removed:true},{merge:true}).catch(wErr);
       (qids||[]).forEach(q=>base().collection('answers').doc(q+'__'+id).delete().catch(wErr)); },
-    answer(a){ if(sess) return base().collection('answers').doc(a.qid+'__'+a.sid).set(a).catch(wErr); }
+    answer(a){ if(sess) return base().collection('answers').doc(a.qid+'__'+a.sid).set(a).catch(wErr); },
+    react(){}
   };
 }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
@@ -496,7 +619,9 @@ function RtdbBackend(cfg){
     const sr=room.child('sessions/'+sess+'/students'), ar=room.child('sessions/'+sess+'/answers');
     const f1=sr.on('value', s=>E.emit('students', list(s)), e=>fail(e,'students'));
     const f2=ar.on('value', s=>E.emit('answers', list(s)), e=>fail(e,'answers'));
-    offs.push(()=>sr.off('value',f1), ()=>ar.off('value',f2));
+    const rr=room.child('sessions/'+sess+'/reacts');
+    const f3=rr.on('value', s=>E.emit('reacts', list(s)), e=>console.warn(e));
+    offs.push(()=>sr.off('value',f1), ()=>ar.off('value',f2), ()=>rr.off('value',f3));
   }
   let everConnected=false;
   db.ref('.info/connected').on('value', s=>{
@@ -521,7 +646,8 @@ function RtdbBackend(cfg){
     rename(id,name){ if(sess) return room.child('sessions/'+sess+'/students/'+id+'/name').set(name).catch(e=>fail(e,'rename')); },
     remove(id,qids){ if(!sess) return; const u={}; u['students/'+id+'/removed']=true; (qids||[]).forEach(q=>u['answers/'+q+'__'+id]=null);
       return room.child('sessions/'+sess).update(u).catch(e=>fail(e,'remove')); },
-    answer(a){ if(sess) return room.child('sessions/'+sess+'/answers/'+a.qid+'__'+a.sid).set(clean(a)).catch(e=>fail(e,'answer')); }
+    answer(a){ if(sess) return room.child('sessions/'+sess+'/answers/'+a.qid+'__'+a.sid).set(clean(a)).catch(e=>fail(e,'answer')); },
+    react(r){ if(sess) return room.child('sessions/'+sess+'/reacts/'+r.sid).set(clean(r)).catch(e=>console.warn(e)); }
   };
 }
 async function makeBackend(){
@@ -563,13 +689,67 @@ function scores(){
   B.on('state', st=>{ S.state=st||{}; onData('state'); });
   B.on('students', l=>{ S.allStudents=l||[]; S.students=S.allStudents.filter(x=>!x.removed); onData('students'); });
   B.on('answers', l=>{ S.answers=l||[]; onData('answers'); });
+  B.on('reacts', l=>onReacts(l||[]));
   B.on('error', ()=>{ render(); showNet(); });
   B.on && B.on('net', ()=>{ render(); showNet(); });
   render();
   setInterval(tick, 1000);
 })();
 
+/* detect moments worth celebrating (never on first load) */
+const PREV={primed:false, stage:null, rev:new Set(), ids:new Set(), cheer:0, session:null, reacts:{}};
+function fxEvents(kind){
+  const st=S.state||{}; if(!me || !st.session) return;
+  const revNow=new Set(Object.keys(st.revealed||{}).filter(k=>st.revealed[k]));
+  if(!PREV.primed || PREV.session!==st.session){
+    PREV.primed=true; PREV.session=st.session; PREV.stage=st.stage; PREV.rev=revNow; PREV.ids=new Set(S.students.map(x=>x.id)); PREV.cheer=(st.cheer&&st.cheer.at)||0; return;
+  }
+  if(kind==='state' && st.stage!==PREV.stage){
+    PREV.stage=st.stage; const sg=STAGES[cur()];
+    if(sg.kind==='end'){ FX.play('fanfare'); setTimeout(()=>{ FX.play('applause',3.5); FX.confetti(220); },1200); }
+    else FX.play('next');
+  }
+  revNow.forEach(id=>{ if(!PREV.rev.has(id)){ onRevealFx(id); } }); PREV.rev=revNow;
+  if(st.cheer && st.cheer.at && st.cheer.at!==PREV.cheer){ PREV.cheer=st.cheer.at;
+    if(Date.now()-st.cheer.at<15000){ FX.play('applause',3); FX.confetti(180); FX.banner(esc(st.cheer.msg||'👏 أحسنتم يا أبطال!'), isT()?'':'تشجيع من المعلم'); } }
+  if(kind==='students'){
+    const ids=new Set(S.students.map(x=>x.id));
+    if(isT()) S.students.forEach(x=>{ if(!PREV.ids.has(x.id)){ FX.play('join'); FX.floatEmoji('👋', esc(x.name)); } });
+    PREV.ids=ids;
+  }
+}
+function onRevealFx(id){
+  const sg=STAGES.find(x=>x.id===id); if(!sg || STAGES[cur()].id!==id) return;
+  FX.play('drum');
+  setTimeout(()=>{
+    if(isT()){
+      const list=S.answers.filter(a=>a.qid===id && S.students.some(x=>x.id===a.sid)), ok=list.filter(a=>a.correct).length;
+      const first=list.filter(a=>a.correct).sort((a,b)=>a.at-b.at)[0];
+      FX.play('applause', ok? 2.6 : 1.2); if(ok) FX.confetti(150);
+      FX.banner(ok?`🎉 ${ok} من ${list.length} أجابوا إجابة صحيحة`:'لنتعلّم من الحل معاً 📘', first?`⚡ الأسرع: ${esc(nameOf(first.sid,first.name))}`:'');
+    } else {
+      const a=myAns(id);
+      if(a && a.correct){ FX.play('correct'); setTimeout(()=>FX.play('applause',2.2),350); FX.confetti(160); FX.banner(pick(PRAISE), streak()>=2?`🔥 ${streak()} إجابات صحيحة متتالية!`:'+10 نقاط'); }
+      else if(a){ FX.play('wrong'); FX.banner(pick(COMFORT),'', 'soft'); }
+      else { FX.play('wrong'); FX.banner('فاتك هذا السؤال ⏰','أجب أسرع في السؤال القادم','soft'); }
+    }
+  }, 1000);
+}
+function streak(){
+  if(!me) return 0; let n=0;
+  for(const sg of STAGES.filter(x=>x.q && revealed(x.id)).reverse()){ const a=myAns(sg.id); if(a && a.correct) n++; else break; }
+  return n;
+}
+function onReacts(list){
+  const now=Date.now();
+  list.forEach(r=>{ if(PREV.reacts[r.sid]!==r.at){ const fresh=PREV.reacts[r.sid]!==undefined || now-r.at<4000; PREV.reacts[r.sid]=r.at;
+    if(fresh && now-r.at<8000 && isT()){ FX.floatEmoji(esc(r.e), esc(nameOf(r.sid,r.name))); FX.play('pop'); } } });
+}
+let lastReact=0;
+function sendReact(e){ const n=Date.now(); if(n-lastReact<1500) return; lastReact=n; B.react && B.react({sid:me.sid, name:me.name, e, at:n}); FX.floatEmoji(e); FX.play('pop'); }
+
 function onData(kind){
+  fxEvents(kind);
   /* create a session only once, and only from a confirmed server snapshot (not the local cache) */
   if(isT() && !S.state.session && S.serverState!==false && !creatingSession){ creatingSession=true; newSession(); }
   if(S.state.session) creatingSession=false;
@@ -598,9 +778,9 @@ function renderLogin(){
   $('#app').innerHTML = `
   <section class="login" id="login">
     <div class="login-hero">
-      <div class="eyebrow">موهبة · رياضيات الصف الخامس · العوامل والمضاعفات · حصة مباشرة</div>
-      <h1><em>شبكات الأعداد</em> و<em>الأرقام الستة</em></h1>
-      <p class="muted">40 دقيقة في العوامل والمضاعفات وقواعد قابلية القسمة: 16 سؤالاً مباشراً على النشاطين. كل إجابة صحيحة تمنحك 10 نقاط، وأسرع الإجابات الصحيحة تحصل على نقاط إضافية.</p>
+      <div class="eyebrow">موهبة · رياضيات الصف الخامس · الأنشطة 3 و 4 و 5 · حصة مباشرة</div>
+      <h1><em>الرسم الشجري</em> و<em>عدد العوامل</em> و<em>مسألة التخييم</em></h1>
+      <p class="muted">35 دقيقة و 15 سؤالاً مباشراً على الأعداد الأولية والرسم الشجري وعدد العوامل والمضاعفات المشتركة. كل إجابة صحيحة تمنحك 10 نقاط، وأسرع الإجابات الصحيحة تحصل على نقاط إضافية.</p>
       <div class="hero-sq">${HERO.map((v,i)=>`<span style="animation-delay:${i*60}ms">${v}</span>`).join('')}</div>
       <p class="credit">إعداد المعلم: محمد رجب</p>
       <p class="credit" id="netLogin"></p>
@@ -625,7 +805,7 @@ function renderLogin(){
   </section>`;
   $('#fStu').onsubmit=e=>{ e.preventDefault(); const n=$('#stuName').value.trim().replace(/\s+/g,' ');
     if(n.length<2){ $('#stuErr').textContent='اكتب اسمك (حرفان على الأقل).'; return; }
-    me={role:'student', sid:uid(), name:n}; store.set(IDK,me); joinedSession=null; onData('login'); };
+    me={role:'student', sid:uid(), name:n}; FX.play('join'); FX.confetti(60,{x:innerWidth/2,y:innerHeight/2}); store.set(IDK,me); joinedSession=null; onData('login'); };
   $('#fT').onsubmit=e=>{ e.preventDefault();
     if($('#tUser').value.trim().toLowerCase()===ADMIN.u && $('#tPass').value.trim()===ADMIN.p){ me={role:'teacher', sid:'teacher', name:'أ. محمد رجب'}; store.set(IDK,me); onData('state'); }
     else $('#tErr').textContent='اسم المستخدم أو كلمة المرور غير صحيحة.'; };
@@ -641,7 +821,7 @@ function buildShell(){
   $('#app').innerHTML = `
   <header class="top">
     <div class="brand"><div class="logo">${'<i></i>'.repeat(9)}</div>
-      <div><h1>شبكات الأعداد والأرقام الستة</h1><small>موهبة · رياضيات الصف الخامس · أ. محمد رجب</small></div></div>
+      <div><h1>العوامل ومسألة التخييم</h1><small>موهبة · رياضيات الصف الخامس · أ. محمد رجب</small></div></div>
     <div class="who" id="who"></div>
   </header>
   <div id="demo"></div>
@@ -652,11 +832,13 @@ function buildShell(){
     <aside class="panel" id="panel"><div class="pstack" id="pmain"></div><div id="mgr"></div></aside>
   </div>`;
 }
+function muteBtn(){ return `<button class="btn ghost" id="mute" aria-label="${FX.muted?'تشغيل الصوت':'كتم الصوت'}" title="${FX.muted?'تشغيل الصوت':'كتم الصوت'}">${FX.muted?'🔇':'🔊'}</button>`; }
 function updateTop(){
   $('#who').innerHTML = isT()
-    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><span class="pill" title="حالة الاتصال">${netLabel()}</span><button class="btn ghost" id="out">خروج</button>`
-    : `<span class="pill s">${esc(me.name)}</span><span class="pill">${netLabel()}</span><button class="btn ghost" id="out">خروج</button>`;
+    ? `<span class="pill t">لوحة المعلم</span><span class="pill">${S.students.length} طالب متصل</span><span class="pill" title="حالة الاتصال">${netLabel()}</span>${muteBtn()}<button class="btn ghost" id="out">خروج</button>`
+    : `<span class="pill s">${esc(me.name)}</span><span class="pill">${netLabel()}</span>${muteBtn()}<button class="btn ghost" id="out">خروج</button>`;
   $('#out').onclick=logout;
+  $('#mute').onclick=()=>{ FX.toggle(); updateTop(); };
   $('#demo').innerHTML = NET.status==='error' ? `<div class="demo" style="background:var(--bad-soft);color:var(--bad)">${esc(NET.msg)}</div>`
     : NET.status==='connecting' ? `<div class="demo">جارٍ الاتصال بقاعدة البيانات…</div>`
     : (isT() && B.mode==='local') ? `<div class="demo">وضع تجريبي: المشاركة تعمل الآن بين تبويبات هذا المتصفح فقط. لربط أجهزة الطلاب أضف إعدادات Firebase في أعلى ملف الموقع.</div>` : '';
@@ -668,7 +850,7 @@ function updateTimeline(){
   const s=STAGES[c], a=startMin(c);
   $('#tlLegend').innerHTML = `<span>المرحلة ${c+1} من ${STAGES.length} · ${esc(ACTS[s.act].name)}${ACTS[s.act].sub?' — '+ACTS[s.act].sub:''}</span><span class="tnum">الدقيقة ${a}–${a+s.min} من ${TOTAL}</span>`;
 }
-function goStage(i){ i=Math.max(0,Math.min(STAGES.length-1,i)); B.setState({stage:i, stageAt:Date.now()}); }
+function goStage(i){ FX.play('click'); i=Math.max(0,Math.min(STAGES.length-1,i)); B.setState({stage:i, stageAt:Date.now()}); }
 
 /* ---------------- stage ---------------- */
 function updateStage(){
@@ -688,6 +870,7 @@ function drawStage(s, mine){
     if(s.viz && s.viz.sq) body += `<div class="sq-wrap" id="viz"></div>`;
     if(s.viz && s.viz.compare) body += `<div id="viz"></div>`;
     if(s.viz && s.viz.area) body += areaHTML(s.viz.area, rev);
+    if(s.viz && s.viz.trees) body += treesHTML(s.viz, rev);
     if(s.viz && s.viz.grid) body += `<div class="ngwrap" id="ngviz"></div>`;
     if(s.viz && s.viz.lab) body += `<div class="lab"><h3>مختبر الأرقام الستة</h3><div id="labviz"></div></div>`;
     body += `<section class="ans" id="ans"></section>`;
@@ -699,6 +882,7 @@ function drawStage(s, mine){
       <div class="timer" id="timer">--:--</div>
     </header>
     <div class="board-body">${body}</div>`;
+  if(drawStage.lastStage!==s.id){ drawStage.lastStage=s.id; const bd=$('#board'); bd.classList.remove('enter'); void bd.offsetWidth; bd.classList.add('enter'); }
   if(s.kind==='lobby') mountLobby();
   if(s.viz && s.viz.sq) mountSquare($('#viz'), s.viz.sq, s.viz.n, {sums: s.viz.sums===true || (s.viz.sums==='reveal' && rev), corners:s.viz.corners});
   if(s.viz && s.viz.compare) mountCompare($('#viz'), rev);
@@ -767,6 +951,23 @@ function mountDigits(el, st, o){
 }
 const digitsOk=(q,v)=>Array.isArray(v) && v.length===6 && [...v].map(Number).sort().join('')==='123456' && Number(v.join(''))%q.d===0;
 
+/* ---------- factor tree (الرسم الشجري) ---------- */
+function treeSVG(t){
+  const leaves=n=>Array.isArray(n)?leaves(n[1])+leaves(n[2]):1, depth=n=>Array.isArray(n)?1+Math.max(depth(n[1]),depth(n[2])):1;
+  const W=Math.max(3,leaves(t))*62, H=depth(t)*70, nodes=[], edges=[];
+  (function place(n,x0,x1,y){ const x=(x0+x1)/2, v=Array.isArray(n)?n[0]:n; nodes.push({x,y,v,leaf:!Array.isArray(n)});
+    if(Array.isArray(n)){ const L=leaves(n[1]), R=leaves(n[2]), m=x0+(x1-x0)*L/(L+R);
+      [[n[1],x0,m],[n[2],m,x1]].forEach(([c,a,b])=>{ edges.push([x,y,(a+b)/2,y+70]); place(c,a,b,y+70); }); } })(t,0,W,32);
+  return `<svg viewBox="0 0 ${W} ${H}" width="${W}" style="max-width:100%;height:auto" role="img" aria-label="رسم شجري لعوامل العدد ${t[0]}">
+    ${edges.map(([a,b,c,d])=>`<line x1="${a}" y1="${b+20}" x2="${c}" y2="${d-20}" stroke="var(--muted)" stroke-width="2"/>`).join('')}
+    ${nodes.map(n=>`<circle cx="${n.x}" cy="${n.y}" r="21" fill="${n.leaf?'var(--teal)':'var(--saffron-soft)'}" stroke="${n.leaf?'var(--teal)':'var(--saffron)'}" stroke-width="2"/>
+      <text x="${n.x}" y="${n.y+6}" text-anchor="middle" font-size="${String(n.v).length>2?15:18}" font-weight="700" fill="${n.leaf?'var(--on-teal)':'var(--ink)'}">${n.v}</text>`).join('')}
+  </svg>`;
+}
+function treesHTML(v, rev){
+  if(v.onReveal && !rev) return '';
+  return `<div class="trees">${v.trees.map(t=>`<figure class="tree">${treeSVG(t)}</figure>`).join('')}</div>`;
+}
 function areaHTML([h,a,b], rev){
   return `<div class="area" aria-label="نموذج المساحة ${h} × (${a} + ${b})">
     <div class="area-side">${h}</div>
@@ -853,7 +1054,7 @@ function mountAnswer(s, mine, rev){
   if(!T){
     if(!locked) h += `<div><button class="btn primary" id="send">إرسال الإجابة</button> <span class="err" id="ansErr"></span></div>`;
     else if(mine && !rev) h += `<div class="sent">تم إرسال إجابتك. انتظر حتى يعرض المعلم الحل.</div>`;
-    else if(rev && mine) h += `<div class="verdict ${mine.correct?'ok':'no'}">${mine.correct?'إجابة صحيحة! أحسنت 🎉':'إجابة غير صحيحة، راجع الحل بالأسفل.'}</div>`;
+    else if(rev && mine) h += `<div class="verdict ${mine.correct?'ok':'no'}">${mine.correct?'إجابة صحيحة! أحسنت <span class="bounce">🎉</span>':'إجابة غير صحيحة، راجع الحل بالأسفل 💪'}</div>`;
     else if(rev) h += `<div class="verdict no">انتهى وقت الإجابة على هذا السؤال.</div>`;
   }
   el.innerHTML=h;
@@ -942,7 +1143,7 @@ function submit(s){
   const a={qid:s.id, sid:me.sid, name:me.name, value, correct, at:Date.now()};
   S.answers = S.answers.filter(x=>!(x.qid===s.id && x.sid===me.sid)).concat([Object.assign({session:S.state.session},a)]);
   try{ B.answer(a); }catch(e){ console.warn(e); }
-  toast('تم الإرسال');
+  toast('تم الإرسال 🚀'); FX.play('send');
   render();
 }
 
@@ -974,9 +1175,9 @@ function endHTML(){
   return `<p class="prompt">أحسنتم جميعاً! هؤلاء أبطال الحصة:</p>
     <div class="podium">${order.filter(i=>top[i]).map(i=>`<div class="pod p${i+1}"><div class="rk">${i+1}</div><b>${esc(top[i].name)}</b><span class="tnum">${top[i].pts} نقطة</span></div>`).join('') || '<span class="muted">لا توجد نتائج بعد.</span>'}</div>
     <div class="explain"><h3>ماذا تعلّمنا اليوم؟</h3>
-      <p style="margin:0">في شبكة من ن عموداً: العمود الأخير فيه مضاعفات ن، وموقع أي عدد يحدده باقي قسمته على ن، مثل 31 = 3 × 10 + 1 فيقع في العمود 1 من الصف 11.</p>
-      <p style="margin:0">قواعد قابلية القسمة توفّر علينا القسمة: 3 و 9 بمجموع الأرقام، و 4 بآخر رقمين، و 8 بآخر ثلاثة أرقام، و 5 و 10 بالآحاد.</p>
-      <p style="margin:0">لاختبار عدد مركّب مثل 12 = 3 × 4 أو 24 = 3 × 8 نطبّق القاعدتين معاً.</p></div>`;
+      <p style="margin:0">الرسم الشجري ينتهي دائماً بالأعداد الأولية نفسها مهما بدأنا، مثل 36 = 2 × 2 × 3 × 3.</p>
+      <p style="margin:0">نجد كل عوامل العدد بضرب نهايات الفروع بطرق مختلفة، والمربعات الكاملة عدد عواملها فردي، ومربعات الأعداد الأولية لها 3 عوامل فقط.</p>
+      <p style="margin:0">لتوزيع الطلاب في مجموعات متساوية نبحث عن عوامل عددهم، وليقبل التوزيع على 2 و 3 و 4 و 5 و 6 معاً نحتاج مضاعفات 60.</p></div>`;
 }
 
 /* ---------------- panel ---------------- */
@@ -996,6 +1197,11 @@ function updatePanel(){
           ${s.q?`<button class="btn gold wide" id="reveal" ${revealed(s.id)?'disabled':''}>${revealed(s.id)?'تم عرض الحل':'عرض الحل وإغلاق الإجابات'}</button>`:''}
           <button class="btn ghost wide" id="rt">إعادة تشغيل مؤقت المرحلة</button>
         </div>
+        <div class="cheer-row" aria-label="تشجيع الطلاب">
+          <button class="btn cheer" data-cheer="👏 أحسنتم يا أبطال!">👏 تصفيق</button>
+          <button class="btn cheer" data-cheer="🌟 فصل مبدع!">🌟 مبدعين</button>
+          <button class="btn cheer" data-cheer="🚀 يلا نكمل بحماس!">🚀 حماس</button>
+        </div>
         ${L.confirmReset?`<div class="confirm"><span>ستُمسح الأسماء والنقاط. متأكد؟</span><button class="btn danger" id="rsYes">نعم، حصة جديدة</button><button class="btn ghost" id="rsNo">إلغاء</button></div>`:`<button class="btn ghost" id="rs">بدء حصة جديدة</button>`}
       </section>
       ${s.q?`<section class="pcard"><h3>إجابات هذا السؤال</h3>
@@ -1010,6 +1216,7 @@ function updatePanel(){
     $('#prev').onclick=()=>goStage(c-1); $('#next').onclick=()=>goStage(c+1);
     $('#rt').onclick=()=>B.setState({stageAt:Date.now()});
     const rv=$('#reveal'); if(rv) rv.onclick=()=>B.setState({revealed:{[s.id]:true}});
+    el.querySelectorAll('[data-cheer]').forEach(b=>b.onclick=()=>B.setState({cheer:{at:Date.now(), msg:b.dataset.cheer}}));
     const pk=$('#peek'); if(pk) pk.onclick=()=>{ L.peek = L.peek===s.id ? null : s.id; stageKey=''; render(); };
     updateMgr();
     if($('#rs')) $('#rs').onclick=()=>{ L.confirmReset=true; updatePanel(); };
@@ -1021,7 +1228,10 @@ function updatePanel(){
     el.innerHTML = `
       <section class="pcard"><div class="score-big"><div><h3>نقاطي</h3><span class="muted">${rank?`الترتيب ${rank} من ${sc.length}`:(S.state.session?'جارٍ تسجيل اسمك…':'في انتظار أن يدخل المعلم ويفتح الحصة…')}</span></div><b>${mine?mine.pts:0}</b></div>
         <div class="meter"><i style="width:${answered/qs*100}%;background:var(--teal)"></i></div><span class="muted">أجبت عن ${answered} من ${qs} سؤالاً</span></section>
+      ${streak()>=2?`<section class="pcard streak"><b>🔥 ${streak()}</b><span>إجابات صحيحة متتالية! واصل</span></section>`:''}
+      <section class="pcard"><h3>تفاعل مع الحصة</h3><div class="reacts">${REACTS.map(e=>`<button class="react-btn" data-r="${e}" aria-label="أرسل ${e}">${e}</button>`).join('')}</div></section>
       <section class="pcard"><h3>لوحة الصدارة</h3>${lb(5)}</section>`;
+    el.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{ sendReact(b.dataset.r); b.classList.remove('bump'); void b.offsetWidth; b.classList.add('bump'); });
     $('#mgr').innerHTML='';
   }
 }
@@ -1068,6 +1278,10 @@ function tick(){
   const over=rem<0; rem=Math.abs(rem);
   el.textContent=(over?'+':'')+String(Math.floor(rem/60)).padStart(2,'0')+':'+String(rem%60).padStart(2,'0');
   el.classList.toggle('over', over);
+  el.classList.toggle('hurry', !over && rem<=10);
+  const key=cur()+'|'+at+'|'+rem+'|'+over;
+  if(key!==tick.last){ tick.last=key; const sg=STAGES[cur()];
+    if(sg.q && !revealed(sg.id)){ if(!over && rem<=5 && rem>0) FX.play('tick'); if(!over && rem===0) FX.play('timeUp'); } }
   el.setAttribute('aria-label', over?'تجاوز الوقت':'الوقت المتبقي');
 }
 </script>
